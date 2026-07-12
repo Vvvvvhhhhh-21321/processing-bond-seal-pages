@@ -1,0 +1,4 @@
+interface:
+  display_name: "债券底稿盖章页"
+  short_description: "批量整理债券底稿盖章签字页并完成日期回贴与审计报告"
+  default_prompt: "Use $processing-bond-seal-pages 处理债券底稿盖章页和签字页的生成、匹配、日期及回贴。"
