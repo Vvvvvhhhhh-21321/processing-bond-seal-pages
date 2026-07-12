@@ -3,7 +3,8 @@ import hashlib
 from pathlib import Path
 import re
 
-from pypdf import PdfReader, PdfWriter, Transformation
+from pypdf import PdfReader, PdfWriter
+from pypdf.errors import PdfReadError
 
 from .date_layout import Box, DateAnchor
 
@@ -62,37 +63,24 @@ def merge_pdf_pages(selections, output_path):
     return Path(output_path)
 
 
+def _read_replacement_pdf(path, role):
+    try:
+        return PdfReader(str(path))
+    except (OSError, PdfReadError) as error:
+        raise ValueError(f"无法读取{role} PDF：{path}") from error
+
+
 def replace_last_page(target_path, returned_path, output_path, returned_page_index=0):
-    target_reader = PdfReader(str(target_path))
+    target_reader = _read_replacement_pdf(target_path, "目标")
     if not target_reader.pages:
         raise ValueError("目标 PDF 没有可替换的页面")
-    returned_reader = PdfReader(str(returned_path))
+    returned_reader = _read_replacement_pdf(returned_path, "回章页")
     returned_page = _page(returned_reader, returned_page_index)
-    target_last = target_reader.pages[-1]
 
     writer = PdfWriter()
     for page in target_reader.pages[:-1]:
         writer.add_page(page)
-
-    target_box = target_last.mediabox
-    result_page = writer.add_blank_page(
-        width=float(target_box.width),
-        height=float(target_box.height),
-    )
-    result_page.mediabox.lower_left = target_box.lower_left
-    result_page.mediabox.upper_right = target_box.upper_right
-
-    source_box = returned_page.mediabox
-    transform = (
-        Transformation()
-        .translate(tx=-float(source_box.left), ty=-float(source_box.bottom))
-        .scale(
-            sx=float(target_box.width) / float(source_box.width),
-            sy=float(target_box.height) / float(source_box.height),
-        )
-        .translate(tx=float(target_box.left), ty=float(target_box.bottom))
-    )
-    result_page.merge_transformed_page(returned_page, transform)
+    writer.add_page(returned_page)
 
     with Path(output_path).open("wb") as output:
         writer.write(output)

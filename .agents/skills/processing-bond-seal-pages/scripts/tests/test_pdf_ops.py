@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
+from pypdf.generic import NameObject, TextStringObject
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -27,7 +28,7 @@ def _write_three_page_pdf(path):
     sizes = [(200, 300), (400, 500), (600, 700)]
     for index, (width, height) in enumerate(sizes, start=1):
         page = writer.add_blank_page(width=width, height=height)
-        page["/PageLabel"] = f"第{index}页"
+        page[NameObject("/PageLabel")] = TextStringObject(f"第{index}页")
     with open(path, "wb") as output:
         writer.write(output)
 
@@ -45,7 +46,7 @@ class PdfOperationTests(unittest.TestCase):
 
             returned_writer = PdfWriter()
             returned_page = returned_writer.add_blank_page(width=300, height=350)
-            returned_page["/PageLabel"] = "返回页"
+            returned_page[NameObject("/PageLabel")] = TextStringObject("返回页")
             with returned.open("wb") as output:
                 returned_writer.write(output)
 
@@ -65,17 +66,22 @@ class PdfOperationTests(unittest.TestCase):
 
             original = PdfReader(source)
             original_prefix = [page["/PageLabel"] for page in original.pages[:2]]
-            original_sizes = [
+            original_prefix_sizes = [
                 (float(page.mediabox.width), float(page.mediabox.height))
-                for page in original.pages
+                for page in original.pages[:2]
             ]
             replace_last_page(source, returned, replaced)
             result = PdfReader(replaced)
             self.assertEqual(len(result.pages), 3)
             self.assertEqual([page["/PageLabel"] for page in result.pages[:2]], original_prefix)
             self.assertEqual(
-                [(float(page.mediabox.width), float(page.mediabox.height)) for page in result.pages],
-                original_sizes,
+                [(float(page.mediabox.width), float(page.mediabox.height)) for page in result.pages[:2]],
+                original_prefix_sizes,
+            )
+            self.assertEqual(result.pages[-1]["/PageLabel"], "返回页")
+            self.assertEqual(
+                (float(result.pages[-1].mediabox.width), float(result.pages[-1].mediabox.height)),
+                (300.0, 350.0),
             )
 
     def test_extracts_text_title_and_date_anchors(self):
