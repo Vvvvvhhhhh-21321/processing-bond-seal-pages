@@ -65,7 +65,9 @@ def merge_pdf_pages(selections, output_path):
 
 def _read_replacement_pdf(path, role):
     try:
-        return PdfReader(str(path))
+        reader = PdfReader(str(path))
+        len(reader.pages)
+        return reader
     except (OSError, PdfReadError) as error:
         raise ValueError(f"无法读取{role} PDF：{path}") from error
 
