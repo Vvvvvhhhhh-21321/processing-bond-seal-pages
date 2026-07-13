@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — 修复 PDF 原样回拼契约与测试基线。
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] Windows 上通过本机 Microsoft Word 后台转换 `.doc` 与 `.docx`，不显示窗口、不保存或修改原 Word。
 - [ ] 每份成功转换的底稿保留完整 PDF，并将最后一页逐份加入待盖章页合集。
