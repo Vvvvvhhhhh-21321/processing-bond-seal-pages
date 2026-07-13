@@ -6,7 +6,8 @@ import shutil
 from pypdf import PdfReader, PdfWriter
 
 from .pdf_ops import sha256_file
-from .titles import extract_bracket_title, normalize_title
+from .seal_page_titles import extract_text_title
+from .titles import normalize_title
 
 
 @dataclass(frozen=True)
@@ -38,17 +39,7 @@ def _converted_path(batch_root, relative_working_paper):
 
 
 def _title_from_seal_page(reader, fallback):
-    text = reader.pages[-1].extract_text() or ""
-    bracketed_title = extract_bracket_title(text)
-    if bracketed_title:
-        return bracketed_title
-    lines = (line.strip() for line in text.splitlines())
-    title_candidates = [line for line in lines if normalize_title(line)]
-    return max(
-        title_candidates,
-        key=lambda line: len(normalize_title(line)),
-        default=fallback,
-    )
+    return extract_text_title(reader.pages[-1].extract_text() or "", fallback=fallback)
 
 
 def _validate_directories(working_paper_root, batch_root):
