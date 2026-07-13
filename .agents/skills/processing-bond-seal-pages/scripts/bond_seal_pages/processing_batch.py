@@ -37,15 +37,15 @@ def _converted_path(batch_root, relative_working_paper):
     )
 
 
-def _title_from_last_page(reader, fallback):
+def _title_from_seal_page(reader, fallback):
     text = reader.pages[-1].extract_text() or ""
     bracketed_title = extract_bracket_title(text)
     if bracketed_title:
         return bracketed_title
     lines = (line.strip() for line in text.splitlines())
-    meaningful_lines = [line for line in lines if normalize_title(line)]
+    title_candidates = [line for line in lines if normalize_title(line)]
     return max(
-        meaningful_lines,
+        title_candidates,
         key=lambda line: len(normalize_title(line)),
         default=fallback,
     )
@@ -117,7 +117,7 @@ def prepare_processing_batch(working_paper_root, batch_root, converter=None):
                 reader = PdfReader(str(converted_path))
                 if not reader.pages:
                     raise ValueError("转换后的 PDF 没有页面")
-                title = _title_from_last_page(reader, working_paper_path.stem)
+                title = _title_from_seal_page(reader, working_paper_path.stem)
                 pdf_hash = sha256_file(converted_path)
                 seal_pages.add_page(reader.pages[-1])
                 item.update(
