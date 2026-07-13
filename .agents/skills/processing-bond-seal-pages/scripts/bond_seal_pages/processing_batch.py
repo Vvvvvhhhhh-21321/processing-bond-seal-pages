@@ -17,7 +17,7 @@ class ProcessingBatchResult:
     manifest_path: Path
 
 
-def _word_files(working_paper_root):
+def _working_paper_files(working_paper_root):
     return sorted(
         (
             path
@@ -38,8 +38,17 @@ def _converted_path(batch_root, relative_working_paper):
 
 
 def _title_from_last_page(reader, fallback):
-    extracted = extract_bracket_title(reader.pages[-1].extract_text() or "")
-    return extracted or fallback
+    text = reader.pages[-1].extract_text() or ""
+    bracketed_title = extract_bracket_title(text)
+    if bracketed_title:
+        return bracketed_title
+    lines = (line.strip() for line in text.splitlines())
+    meaningful_lines = [line for line in lines if normalize_title(line)]
+    return max(
+        meaningful_lines,
+        key=lambda line: len(normalize_title(line)),
+        default=fallback,
+    )
 
 
 def _validate_directories(working_paper_root, batch_root):
@@ -70,6 +79,15 @@ def _prepare_output_directory(batch_root):
     (batch_root / "pdfs").mkdir()
 
 
+def _failed_item(item, converted_path, error):
+    message = str(error)
+    try:
+        converted_path.unlink(missing_ok=True)
+    except OSError as cleanup_error:
+        message = f"{message}；无法清理转换残留：{cleanup_error}"
+    item.update({"status": "failed", "error": message})
+
+
 def prepare_processing_batch(working_paper_root, batch_root, converter=None):
     working_paper_root = Path(working_paper_root)
     batch_root = Path(batch_root)
@@ -85,7 +103,7 @@ def prepare_processing_batch(working_paper_root, batch_root, converter=None):
     items = []
     seal_pages = PdfWriter()
     try:
-        for working_paper_path in _word_files(working_paper_root):
+        for working_paper_path in _working_paper_files(working_paper_root):
             relative_working_paper = working_paper_path.relative_to(working_paper_root)
             converted_path = _converted_path(batch_root, relative_working_paper)
             item = {
@@ -115,8 +133,7 @@ def prepare_processing_batch(working_paper_root, batch_root, converter=None):
                     }
                 )
             except Exception as error:
-                converted_path.unlink(missing_ok=True)
-                item.update({"status": "failed", "error": str(error)})
+                _failed_item(item, converted_path, error)
             items.append(item)
     finally:
         if owned_converter:
