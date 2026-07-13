@@ -82,7 +82,7 @@ def _load_manifest(batch_root):
 
 def _validate_item(batch_root, item):
     if item.status != "ready":
-        raise ValueError("底稿未在第一阶段成功生成")
+        raise ValueError("底稿文件未在第一阶段成功生成")
     converted_path = _relative_path(
         batch_root,
         item.converted_pdf,
@@ -98,7 +98,7 @@ def _validate_item(batch_root, item):
     if page_count != item.pdf_page_count:
         raise ValueError("完整底稿 PDF 页数不一致")
     if normalize_title(item.title) != item.normalized_title:
-        raise ValueError("底稿标题映射不一致")
+        raise ValueError("底稿文件标题映射不一致")
     return converted_path
 
 
@@ -131,6 +131,27 @@ def _output_path(output_root, working_paper_path):
     )
 
 
+def _duplicate_manifest_indexes(records, field, normalize):
+    groups = {}
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            continue
+        value = record.get(field)
+        if not isinstance(value, str):
+            continue
+        try:
+            value = normalize(value)
+        except (OSError, TypeError, ValueError):
+            continue
+        groups.setdefault(value, []).append(index)
+    return {
+        index
+        for indexes in groups.values()
+        if len(indexes) > 1
+        for index in indexes
+    }
+
+
 def complete_processing_batch(batch_root, returned_pdf, output_root):
     batch_root = Path(batch_root)
     returned_pdf = Path(returned_pdf)
@@ -141,37 +162,55 @@ def complete_processing_batch(batch_root, returned_pdf, output_root):
     completed_root.mkdir(parents=True)
 
     manifest = _load_manifest(batch_root)
-    outcomes = {}
-    valid_items = []
+    records = manifest["items"]
+    duplicate_id_indexes = _duplicate_manifest_indexes(
+        records,
+        "working_paper_id",
+        lambda value: value,
+    )
+    duplicate_path_indexes = _duplicate_manifest_indexes(
+        records,
+        "working_paper_path",
+        lambda value: str(_output_path(output_root, Path(value))).casefold(),
+    )
+
+    outcomes = [None] * len(records)
+    valid_entries = []
     converted_paths = {}
-    item_order = []
-    for record in manifest["items"]:
-        working_paper_id = record.get("working_paper_id", "")
-        item_order.append(working_paper_id)
+    for index, record in enumerate(records):
+        working_paper_id = (
+            record.get("working_paper_id", "")
+            if isinstance(record, dict)
+            else ""
+        )
         try:
+            if index in duplicate_id_indexes:
+                raise ValueError("底稿文件标识在处理批次中重复")
+            if index in duplicate_path_indexes:
+                raise ValueError("底稿文件相对位置在处理批次中重复")
             item = ProcessingBatchItem.from_manifest(record)
             working_paper_id = item.working_paper_id
-            item_order[-1] = working_paper_id
             converted_paths[working_paper_id] = _validate_item(batch_root, item)
             _output_path(output_root, item.working_paper_path)
-            valid_items.append(item)
+            valid_entries.append((index, item))
         except (KeyError, OSError, TypeError, ValueError) as error:
-            outcomes[working_paper_id] = CompletionItem(
+            outcomes[index] = CompletionItem(
                 working_paper_id,
                 "invalid_batch",
                 reason=str(error),
             )
 
+    valid_items = [item for _, item in valid_entries]
     returned_titles, untitled_pages = _read_returned_titles(returned_pdf)
     matching = plan_completion_matches(valid_items, returned_titles)
-    for item in valid_items:
+    for index, item in valid_entries:
         working_paper_id = item.working_paper_id
         match = matching.matches.get(working_paper_id)
         if match is None:
             ambiguity = matching.ambiguities.get(working_paper_id)
             if ambiguity is not None:
                 returned_page, score = ambiguity
-                outcomes[working_paper_id] = CompletionItem(
+                outcomes[index] = CompletionItem(
                     working_paper_id,
                     "ambiguous",
                     returned_page=returned_page,
@@ -181,14 +220,14 @@ def complete_processing_batch(batch_root, returned_pdf, output_root):
                 continue
             candidate = matching.low_confidence.get(working_paper_id)
             if candidate is None:
-                outcomes[working_paper_id] = CompletionItem(
+                outcomes[index] = CompletionItem(
                     working_paper_id,
                     "unmatched",
                     reason="没有可匹配的回章页",
                 )
             else:
                 returned_page, score = candidate
-                outcomes[working_paper_id] = CompletionItem(
+                outcomes[index] = CompletionItem(
                     working_paper_id,
                     "low_confidence",
                     returned_page=returned_page,
@@ -206,7 +245,7 @@ def complete_processing_batch(batch_root, returned_pdf, output_root):
                 output_path,
                 returned_page_index=match.returned_page - 1,
             )
-            outcomes[working_paper_id] = CompletionItem(
+            outcomes[index] = CompletionItem(
                 working_paper_id,
                 "completed",
                 returned_page=match.returned_page,
@@ -219,7 +258,7 @@ def complete_processing_batch(batch_root, returned_pdf, output_root):
                     output_path.unlink(missing_ok=True)
                 except OSError:
                     pass
-            outcomes[working_paper_id] = CompletionItem(
+            outcomes[index] = CompletionItem(
                 working_paper_id,
                 "failed",
                 returned_page=match.returned_page,
@@ -227,6 +266,5 @@ def complete_processing_batch(batch_root, returned_pdf, output_root):
                 reason=str(error),
             )
 
-    ordered_outcomes = tuple(outcomes[working_paper_id] for working_paper_id in item_order)
     unused_pages = tuple(sorted(set(matching.unused_pages) | set(untitled_pages)))
-    return CompletionBatchResult(ordered_outcomes, unused_pages, output_root)
+    return CompletionBatchResult(tuple(outcomes), unused_pages, output_root)

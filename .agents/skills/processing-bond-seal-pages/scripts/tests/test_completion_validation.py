@@ -14,6 +14,26 @@ from completion_test_support import create_processing_batch, write_pdf_pages  # 
 
 
 class CompletionValidationTests(unittest.TestCase):
+    def test_hash_mismatch_item_does_not_block_another_working_paper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            batch_root = create_processing_batch(
+                root,
+                [("篡改.docx", "Changed Title"), ("有效.docx", "Valid Title")],
+            )
+            manifest_path = batch_root / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["items"][0]["pdf_sha256"] = "0" * 64
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            returned_pdf = root / "returned.pdf"
+            write_pdf_pages(returned_pdf, [("Valid Title", (400, 600))])
+
+            result = complete_processing_batch(batch_root, returned_pdf, root / "回拼结果")
+
+            self.assertEqual(result.items[0].status, "invalid_batch")
+            self.assertIn("校验值", result.items[0].reason)
+            self.assertEqual(result.items[1].status, "completed")
+
     def test_invalid_pdf_item_does_not_block_another_working_paper(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
