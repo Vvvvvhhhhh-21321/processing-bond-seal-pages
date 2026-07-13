@@ -26,8 +26,8 @@ class FakeDocuments:
         self.document = document
         self.open_call = None
 
-    def Open(self, source_path, **options):
-        self.open_call = (source_path, options)
+    def Open(self, input_path, **options):
+        self.open_call = (input_path, options)
         return self.document
 
 
@@ -49,18 +49,21 @@ class WindowsWordPdfConverterTests(unittest.TestCase):
         converter = WindowsWordPdfConverter(application_factory=lambda: application)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = root / "底稿.docx"
+            working_paper_path = root / "底稿.docx"
             output = root / "输出.pdf"
-            source.write_bytes(b"word")
+            working_paper_path.write_bytes(b"word")
 
-            converter.convert(source, output)
+            converter.convert(working_paper_path, output)
             converter.close()
 
             self.assertFalse(application.Visible)
             self.assertEqual(application.DisplayAlerts, 0)
             self.assertEqual(
                 application.Documents.open_call,
-                (str(source.resolve()), {"ReadOnly": True, "AddToRecentFiles": False}),
+                (
+                    str(working_paper_path.resolve()),
+                    {"ReadOnly": True, "AddToRecentFiles": False},
+                ),
             )
             self.assertEqual(application.document.export_call, (str(output.resolve()), 17))
             self.assertEqual(application.document.close_call, 0)

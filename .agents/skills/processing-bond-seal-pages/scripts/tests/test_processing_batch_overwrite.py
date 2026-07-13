@@ -17,30 +17,35 @@ def _sha256(path):
 
 
 class SuccessfulConverter:
-    def convert(self, source_path, output_path):
+    def convert(self, working_paper_path, output_path):
         canvas = Canvas(str(output_path), pagesize=(500, 700))
         canvas.drawString(50, 650, "last page")
         canvas.save()
 
 
 class ProcessingBatchOverwriteTests(unittest.TestCase):
-    def test_overwrites_an_existing_batch_without_changing_word_files(self):
+    def test_overwrites_generated_results_without_changing_word_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = root / "底稿"
+            working_paper_root = root / "底稿"
             batch = root / "处理批次"
-            source.mkdir()
-            word_path = source / "底稿.docx"
-            word_path.write_bytes(b"original word file")
-            original_hash = _sha256(word_path)
-            batch.mkdir()
-            (batch / "旧结果.txt").write_text("stale", encoding="utf-8")
+            working_paper_root.mkdir()
+            working_paper_path = working_paper_root / "底稿.docx"
+            working_paper_path.write_bytes(b"original word file")
+            original_hash = _sha256(working_paper_path)
+            (batch / "pdfs").mkdir(parents=True)
+            stale_pdf = batch / "pdfs" / "旧结果.pdf"
+            stale_pdf.write_bytes(b"stale")
 
-            result = prepare_processing_batch(source, batch, converter=SuccessfulConverter())
+            result = prepare_processing_batch(
+                working_paper_root,
+                batch,
+                converter=SuccessfulConverter(),
+            )
 
-            self.assertFalse((batch / "旧结果.txt").exists())
+            self.assertFalse(stale_pdf.exists())
             self.assertEqual(result.succeeded, 1)
-            self.assertEqual(_sha256(word_path), original_hash)
+            self.assertEqual(_sha256(working_paper_path), original_hash)
 
 
 if __name__ == "__main__":

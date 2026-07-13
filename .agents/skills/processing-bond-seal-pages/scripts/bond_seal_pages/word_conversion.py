@@ -19,11 +19,11 @@ class WindowsWordPdfConverter:
         self._application.Visible = False
         self._application.DisplayAlerts = 0
 
-    def convert(self, source_path, output_path):
-        source_path = Path(source_path).resolve()
+    def convert(self, input_path, output_path):
+        input_path = Path(input_path).resolve()
         output_path = Path(output_path).resolve()
         document = self._application.Documents.Open(
-            str(source_path),
+            str(input_path),
             ReadOnly=True,
             AddToRecentFiles=False,
         )
