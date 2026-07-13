@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — 从 Windows Word 生成处理批次。
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] 第二阶段读取处理批次中的完整底稿 PDF 和映射，不重新转换原 Word。
 - [ ] 开始回拼前校验批次文件及校验值，单个损坏或不一致项目不影响其他项目。
