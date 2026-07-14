@@ -2,7 +2,7 @@
 
 ### Skill usability
 
-The deliverable is a skill that less-capable models must be able to execute reliably. Prefer explicit inputs, ordered steps, deterministic scripts, named failure states, and verifiable outputs over instructions that require the model to infer the workflow.
+The deliverable is a skill that GPT-5.4 xhigh / GPT-5.5-level models must be able to execute reliably. Use deterministic scripts for repeatable, mechanical, or high-risk file operations. Complex judgments may remain model-driven when encoding them would be brittle; give the model explicit context, decision criteria, failure exits, and verification steps instead of forcing every judgment into code.
 
 ### Issue tracker
 
