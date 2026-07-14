@@ -7,9 +7,13 @@ import shutil
 from pypdf import PdfReader
 
 from .completion_matching import plan_completion_matches
+from .ocr import RapidOCRTitleEngine, extract_ocr_page_title
 from .pdf_ops import replace_last_page, sha256_file
 from .seal_page_titles import extract_pdf_page_title
 from .titles import ReturnedTitle, normalize_title
+
+
+_MIN_DIRECT_TEXT_TITLE_LENGTH = 4
 
 
 @dataclass(frozen=True)
@@ -103,7 +107,18 @@ def _validate_item(batch_root, item):
     return converted_path
 
 
-def _read_returned_titles(returned_pdf):
+def _has_sufficient_text_title(title, expected_titles):
+    normalized_title = normalize_title(title)
+    if not normalized_title:
+        return False
+    expected = {normalize_title(value) for value in expected_titles}
+    return len(normalized_title) >= _MIN_DIRECT_TEXT_TITLE_LENGTH or normalized_title in expected
+
+
+def _read_returned_titles(returned_pdf, ocr_engine=None, expected_titles=()):
+    expected_titles = tuple(expected_titles)
+    if ocr_engine is None:
+        ocr_engine = RapidOCRTitleEngine()
     try:
         reader = PdfReader(str(returned_pdf))
         pages = list(reader.pages)
@@ -113,9 +128,19 @@ def _read_returned_titles(returned_pdf):
     untitled_pages = []
     for page_number, page in enumerate(pages, start=1):
         try:
-            title = extract_pdf_page_title(page)
+            text_title = extract_pdf_page_title(page)
         except Exception:
-            title = None
+            text_title = None
+        title = (
+            text_title
+            if _has_sufficient_text_title(text_title, expected_titles)
+            else None
+        )
+        if title is None and ocr_engine is not None:
+            try:
+                title = extract_ocr_page_title(page, ocr_engine)
+            except Exception:
+                title = None
         if title:
             titles.append(ReturnedTitle(page_number, title))
         else:
@@ -153,7 +178,7 @@ def _duplicate_manifest_indexes(records, field, normalize):
     }
 
 
-def complete_processing_batch(batch_root, returned_pdf, output_root):
+def complete_processing_batch(batch_root, returned_pdf, output_root, ocr_engine=None):
     batch_root = Path(batch_root)
     returned_pdf = Path(returned_pdf)
     output_root = Path(output_root)
@@ -213,7 +238,11 @@ def complete_processing_batch(batch_root, returned_pdf, output_root):
             )
 
     valid_items = [item for _, item in valid_entries]
-    returned_titles, untitled_pages = _read_returned_titles(returned_pdf)
+    returned_titles, untitled_pages = _read_returned_titles(
+        returned_pdf,
+        ocr_engine,
+        (item.title for item in valid_items),
+    )
     matching = plan_completion_matches(valid_items, returned_titles)
     for index, item in valid_entries:
         working_paper_id = item.working_paper_id

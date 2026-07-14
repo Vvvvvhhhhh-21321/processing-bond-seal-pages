@@ -1,6 +1,9 @@
+from io import BytesIO
 import json
 from pathlib import Path
 
+from PIL import Image
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
@@ -52,3 +55,20 @@ def create_processing_batch(root, records):
         encoding="utf-8",
     )
     return batch_root
+
+
+def write_scanned_pdf_pages(path, pages):
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    canvas = Canvas(str(path), pagesize=(400, 600))
+    for index, (color, text_layer) in enumerate(pages):
+        if index:
+            canvas.setPageSize((400, 600))
+        image_buffer = BytesIO()
+        Image.new("RGB", (200, 300), color).save(image_buffer, format="PNG")
+        image_buffer.seek(0)
+        canvas.drawImage(ImageReader(image_buffer), 0, 0, width=400, height=600)
+        if text_layer:
+            canvas.setFont("STSong-Light", 10)
+            canvas.drawString(20, 20, text_layer)
+        canvas.showPage()
+    canvas.save()
