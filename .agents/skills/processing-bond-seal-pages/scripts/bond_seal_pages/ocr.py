@@ -26,8 +26,9 @@ def default_ocr_cache_dir():
 
 
 class RapidOCRTitleEngine:
-    def __init__(self, cache_dir=None):
+    def __init__(self, cache_dir=None, render_dpi=200):
         self.cache_dir = Path(cache_dir or default_ocr_cache_dir())
+        self.render_dpi = render_dpi
         self._engine = None
         self._initialization_error = None
 
@@ -64,7 +65,17 @@ class RapidOCRTitleEngine:
                 raise self._initialization_error from error
         return self._engine
 
-    def recognize(self, image_bytes):
+    def recognize_page(self, pdf_path, page_number):
+        try:
+            pymupdf = import_module("pymupdf")
+        except ImportError as error:
+            raise OCRUnavailableError(
+                "无法渲染回章页；请确认 pymupdf 已安装"
+            ) from error
+        with pymupdf.open(str(pdf_path)) as document:
+            page = document.load_page(page_number - 1)
+            pixmap = page.get_pixmap(dpi=self.render_dpi, alpha=False)
+            image_bytes = pixmap.tobytes("png")
         result = self._get_engine()(
             image_bytes,
             use_det=True,
@@ -74,8 +85,6 @@ class RapidOCRTitleEngine:
         return tuple(result.txts or ())
 
 
-def extract_ocr_page_title(page, engine):
-    recognized_lines = []
-    for image in page.images:
-        recognized_lines.extend(engine.recognize(image.data) or ())
+def extract_ocr_page_title(pdf_path, page_number, engine):
+    recognized_lines = engine.recognize_page(pdf_path, page_number)
     return extract_text_title("\n".join(recognized_lines))

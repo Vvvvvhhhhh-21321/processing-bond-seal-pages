@@ -3,7 +3,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from pypdf import PdfReader
@@ -15,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bond_seal_pages.completion import complete_processing_batch  # noqa: E402
 from completion_test_support import (  # noqa: E402
     create_processing_batch,
+    make_fake_pymupdf_module,
+    make_fake_rapidocr_module,
     write_pdf_pages,
     write_scanned_pdf_pages,
 )
@@ -25,8 +26,8 @@ class StubOCREngine:
         self.responses = list(responses)
         self.calls = []
 
-    def recognize(self, image_bytes):
-        self.calls.append(image_bytes)
+    def recognize_page(self, pdf_path, page_number):
+        self.calls.append((Path(pdf_path), page_number))
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
@@ -93,6 +94,24 @@ class CompletionOCRTests(unittest.TestCase):
             self.assertEqual(result.items[0].status, "completed")
             self.assertEqual(len(ocr_engine.calls), 1)
 
+    def test_unrelated_residual_text_layer_falls_back_to_ocr(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            batch_root = create_processing_batch(root, [("扫描型.docx", "扫描型确认函")])
+            returned_pdf = root / "returned.pdf"
+            write_scanned_pdf_pages(returned_pdf, [("white", "扫描全能王")])
+            ocr_engine = StubOCREngine(("《扫描型确认函》",))
+
+            result = complete_processing_batch(
+                batch_root,
+                returned_pdf,
+                root / "回拼结果",
+                ocr_engine=ocr_engine,
+            )
+
+            self.assertEqual(result.items[0].status, "completed")
+            self.assertEqual(len(ocr_engine.calls), 1)
+
     def test_scanned_page_automatically_uses_rapidocr_adapter(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -100,21 +119,8 @@ class CompletionOCRTests(unittest.TestCase):
             returned_pdf = root / "returned.pdf"
             write_scanned_pdf_pages(returned_pdf, [("white", None)])
 
-            class FakeRapidOCR:
-                def __init__(self, params):
-                    self.params = params
-
-                def __call__(self, image_bytes, **options):
-                    return SimpleNamespace(txts=("《扫描型确认函》",))
-
-            rapidocr_module = SimpleNamespace(
-                RapidOCR=FakeRapidOCR,
-                EngineType=SimpleNamespace(ONNXRUNTIME="onnxruntime"),
-                LangDet=SimpleNamespace(CH="ch-det"),
-                LangRec=SimpleNamespace(CH="ch-rec"),
-                ModelType=SimpleNamespace(SMALL="small"),
-                OCRVersion=SimpleNamespace(PPOCRV6="PP-OCRv6"),
-            )
+            rapidocr_module = make_fake_rapidocr_module(("《扫描型确认函》",))
+            pymupdf_module = make_fake_pymupdf_module()
 
             with patch.dict(
                 os.environ,
@@ -122,7 +128,8 @@ class CompletionOCRTests(unittest.TestCase):
             ), patch.dict(
                 sys.modules,
                 {
-                    "onnxruntime": SimpleNamespace(),
+                    "onnxruntime": object(),
+                    "pymupdf": pymupdf_module,
                     "rapidocr": rapidocr_module,
                 },
             ):
@@ -215,6 +222,9 @@ class CompletionOCRTests(unittest.TestCase):
             self.assertEqual(result.items[1].status, "completed")
             self.assertEqual(result.items[1].returned_page, 2)
             self.assertEqual(result.unused_pages, (1,))
+            self.assertEqual(len(result.ocr_failures), 1)
+            self.assertEqual(result.ocr_failures[0].page, 1)
+            self.assertIn("单页 OCR 失败", result.ocr_failures[0].reason)
 
     def test_multiple_short_exact_text_titles_do_not_call_ocr(self):
         with tempfile.TemporaryDirectory() as directory:

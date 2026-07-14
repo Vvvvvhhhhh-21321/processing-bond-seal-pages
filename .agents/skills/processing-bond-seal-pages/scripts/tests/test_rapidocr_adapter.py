@@ -2,13 +2,17 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from bond_seal_pages.ocr import RapidOCRTitleEngine  # noqa: E402
+from completion_test_support import (  # noqa: E402
+    make_fake_pymupdf_module,
+    make_fake_rapidocr_module,
+)
 
 
 class RapidOCRAdapterTests(unittest.TestCase):
@@ -18,38 +22,44 @@ class RapidOCRAdapterTests(unittest.TestCase):
             created_params = []
             calls = []
 
-            class FakeRapidOCR:
-                def __init__(self, params):
-                    created_params.append(params)
-
-                def __call__(self, image_bytes, **options):
-                    calls.append((image_bytes, options))
-                    return SimpleNamespace(txts=("《扫描型确认函》",))
-
-            rapidocr_module = SimpleNamespace(
-                RapidOCR=FakeRapidOCR,
-                EngineType=SimpleNamespace(ONNXRUNTIME="onnxruntime"),
-                LangDet=SimpleNamespace(CH="ch-det"),
-                LangRec=SimpleNamespace(CH="ch-rec"),
-                ModelType=SimpleNamespace(SMALL="small"),
-                OCRVersion=SimpleNamespace(PPOCRV6="PP-OCRv6"),
+            render_events = []
+            rapidocr_module = make_fake_rapidocr_module(
+                ("《扫描型确认函》",),
+                created_params,
+                calls,
+            )
+            pymupdf_module = make_fake_pymupdf_module(
+                b"rendered-page",
+                render_events,
             )
 
             with patch.dict(
                 sys.modules,
                 {
-                    "onnxruntime": SimpleNamespace(),
+                    "onnxruntime": object(),
+                    "pymupdf": pymupdf_module,
                     "rapidocr": rapidocr_module,
                 },
             ):
                 engine = RapidOCRTitleEngine(cache_dir=cache_dir)
-                first = engine.recognize(b"first-image")
-                second = engine.recognize(b"second-image")
+                pdf_path = Path(directory) / "returned.pdf"
+                first = engine.recognize_page(pdf_path, 2)
+                second = engine.recognize_page(pdf_path, 1)
 
             self.assertEqual(first, ("《扫描型确认函》",))
             self.assertEqual(second, ("《扫描型确认函》",))
             self.assertEqual(len(created_params), 1)
             self.assertEqual(len(calls), 2)
+            self.assertEqual(calls[0][0], b"rendered-page")
+            self.assertEqual(
+                render_events[:4],
+                [
+                    ("open", str(Path(directory) / "returned.pdf")),
+                    ("load_page", 1),
+                    ("get_pixmap", {"dpi": 200, "alpha": False}),
+                    ("tobytes", "png"),
+                ],
+            )
             self.assertTrue(cache_dir.is_dir())
             params = created_params[0]
             self.assertEqual(params["Det.engine_type"], "onnxruntime")

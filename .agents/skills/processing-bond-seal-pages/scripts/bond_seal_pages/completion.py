@@ -7,13 +7,12 @@ import shutil
 from pypdf import PdfReader
 
 from .completion_matching import plan_completion_matches
-from .ocr import RapidOCRTitleEngine, extract_ocr_page_title
 from .pdf_ops import replace_last_page, sha256_file
-from .seal_page_titles import extract_pdf_page_title
-from .titles import ReturnedTitle, normalize_title
-
-
-_MIN_DIRECT_TEXT_TITLE_LENGTH = 4
+from .returned_page_titles import (
+    OCRPageFailure,
+    read_returned_page_titles,
+)
+from .titles import normalize_title
 
 
 @dataclass(frozen=True)
@@ -31,6 +30,7 @@ class CompletionBatchResult:
     items: tuple[CompletionItem, ...]
     unused_pages: tuple[int, ...]
     output_root: Path
+    ocr_failures: tuple[OCRPageFailure, ...] = ()
 
     @property
     def succeeded(self):
@@ -105,47 +105,6 @@ def _validate_item(batch_root, item):
     if normalize_title(item.title) != item.normalized_title:
         raise ValueError("底稿文件标题映射不一致")
     return converted_path
-
-
-def _has_sufficient_text_title(title, expected_titles):
-    normalized_title = normalize_title(title)
-    if not normalized_title:
-        return False
-    expected = {normalize_title(value) for value in expected_titles}
-    return len(normalized_title) >= _MIN_DIRECT_TEXT_TITLE_LENGTH or normalized_title in expected
-
-
-def _read_returned_titles(returned_pdf, ocr_engine=None, expected_titles=()):
-    expected_titles = tuple(expected_titles)
-    if ocr_engine is None:
-        ocr_engine = RapidOCRTitleEngine()
-    try:
-        reader = PdfReader(str(returned_pdf))
-        pages = list(reader.pages)
-    except Exception as error:
-        raise ValueError(f"无法读取回章页合集：{returned_pdf}") from error
-    titles = []
-    untitled_pages = []
-    for page_number, page in enumerate(pages, start=1):
-        try:
-            text_title = extract_pdf_page_title(page)
-        except Exception:
-            text_title = None
-        title = (
-            text_title
-            if _has_sufficient_text_title(text_title, expected_titles)
-            else None
-        )
-        if title is None and ocr_engine is not None:
-            try:
-                title = extract_ocr_page_title(page, ocr_engine)
-            except Exception:
-                title = None
-        if title:
-            titles.append(ReturnedTitle(page_number, title))
-        else:
-            untitled_pages.append(page_number)
-    return tuple(titles), tuple(untitled_pages)
 
 
 def _output_path(output_root, working_paper_path):
@@ -238,12 +197,12 @@ def complete_processing_batch(batch_root, returned_pdf, output_root, ocr_engine=
             )
 
     valid_items = [item for _, item in valid_entries]
-    returned_titles, untitled_pages = _read_returned_titles(
+    returned_pages = read_returned_page_titles(
         returned_pdf,
-        ocr_engine,
         (item.title for item in valid_items),
+        ocr_engine,
     )
-    matching = plan_completion_matches(valid_items, returned_titles)
+    matching = plan_completion_matches(valid_items, returned_pages.titles)
     for index, item in valid_entries:
         working_paper_id = item.working_paper_id
         match = matching.matches.get(working_paper_id)
@@ -307,5 +266,12 @@ def complete_processing_batch(batch_root, returned_pdf, output_root, ocr_engine=
                 reason=str(error),
             )
 
-    unused_pages = tuple(sorted(set(matching.unused_pages) | set(untitled_pages)))
-    return CompletionBatchResult(tuple(outcomes), unused_pages, output_root)
+    unused_pages = tuple(
+        sorted(set(matching.unused_pages) | set(returned_pages.untitled_pages))
+    )
+    return CompletionBatchResult(
+        tuple(outcomes),
+        unused_pages,
+        output_root,
+        returned_pages.ocr_failures,
+    )

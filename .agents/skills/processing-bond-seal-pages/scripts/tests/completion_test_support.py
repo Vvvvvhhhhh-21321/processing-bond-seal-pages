@@ -1,6 +1,7 @@
 from io import BytesIO
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from PIL import Image
 from reportlab.lib.utils import ImageReader
@@ -72,3 +73,56 @@ def write_scanned_pdf_pages(path, pages):
             canvas.drawString(20, 20, text_layer)
         canvas.showPage()
     canvas.save()
+
+
+def make_fake_rapidocr_module(texts, created_params=None, calls=None):
+    created_params = [] if created_params is None else created_params
+    calls = [] if calls is None else calls
+
+    class FakeRapidOCR:
+        def __init__(self, params):
+            created_params.append(params)
+
+        def __call__(self, image_bytes, **options):
+            calls.append((image_bytes, options))
+            return SimpleNamespace(txts=texts)
+
+    return SimpleNamespace(
+        RapidOCR=FakeRapidOCR,
+        EngineType=SimpleNamespace(ONNXRUNTIME="onnxruntime"),
+        LangDet=SimpleNamespace(CH="ch-det"),
+        LangRec=SimpleNamespace(CH="ch-rec"),
+        ModelType=SimpleNamespace(SMALL="small"),
+        OCRVersion=SimpleNamespace(PPOCRV6="PP-OCRv6"),
+    )
+
+
+def make_fake_pymupdf_module(image_bytes=b"rendered-page", events=None):
+    events = [] if events is None else events
+
+    class FakePixmap:
+        def tobytes(self, image_format):
+            events.append(("tobytes", image_format))
+            return image_bytes
+
+    class FakePage:
+        def get_pixmap(self, **options):
+            events.append(("get_pixmap", options))
+            return FakePixmap()
+
+    class FakeDocument:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+        def load_page(self, page_index):
+            events.append(("load_page", page_index))
+            return FakePage()
+
+    def open_document(path):
+        events.append(("open", str(path)))
+        return FakeDocument()
+
+    return SimpleNamespace(open=open_document)
