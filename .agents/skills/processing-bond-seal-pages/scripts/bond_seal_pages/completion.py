@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import shutil
 
@@ -171,7 +172,16 @@ def complete_processing_batch(batch_root, returned_pdf, output_root):
     duplicate_path_indexes = _duplicate_manifest_indexes(
         records,
         "working_paper_path",
-        lambda value: str(_output_path(output_root, Path(value))).casefold(),
+        lambda value: os.path.normcase(
+            str(_output_path(output_root, Path(value)))
+        ),
+    )
+    duplicate_pdf_indexes = _duplicate_manifest_indexes(
+        records,
+        "converted_pdf",
+        lambda value: os.path.normcase(
+            str(_relative_path(batch_root, Path(value), "完整底稿 PDF"))
+        ),
     )
 
     outcomes = [None] * len(records)
@@ -188,6 +198,8 @@ def complete_processing_batch(batch_root, returned_pdf, output_root):
                 raise ValueError("底稿文件标识在处理批次中重复")
             if index in duplicate_path_indexes:
                 raise ValueError("底稿文件相对位置在处理批次中重复")
+            if index in duplicate_pdf_indexes:
+                raise ValueError("完整底稿 PDF 路径在处理批次中重复")
             item = ProcessingBatchItem.from_manifest(record)
             working_paper_id = item.working_paper_id
             converted_paths[working_paper_id] = _validate_item(batch_root, item)

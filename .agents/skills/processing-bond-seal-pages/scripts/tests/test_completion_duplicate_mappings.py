@@ -24,6 +24,9 @@ class CompletionDuplicateMappingTests(unittest.TestCase):
         manifest_path = batch_root / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["items"][1][field] = manifest["items"][0][field]
+        if field == "converted_pdf":
+            manifest["items"][1]["pdf_page_count"] = manifest["items"][0]["pdf_page_count"]
+            manifest["items"][1]["pdf_sha256"] = manifest["items"][0]["pdf_sha256"]
         manifest_path.write_text(
             json.dumps(manifest, ensure_ascii=False),
             encoding="utf-8",
@@ -50,7 +53,15 @@ class CompletionDuplicateMappingTests(unittest.TestCase):
         )
         self.assertTrue(all("重复" in item.reason for item in result.items[:2]))
 
+    def test_duplicate_converted_pdf_paths_invalidate_both_records_only(self):
+        result = self._run_with_duplicate("converted_pdf")
+
+        self.assertEqual(
+            [item.status for item in result.items],
+            ["invalid_batch", "invalid_batch", "completed"],
+        )
+        self.assertTrue(all("重复" in item.reason for item in result.items[:2]))
+
 
 if __name__ == "__main__":
     unittest.main()
-
