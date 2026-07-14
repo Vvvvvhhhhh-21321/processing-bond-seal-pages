@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — 完成文字层回章页的自动回拼。
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] 页面存在足够文字层时不调用 OCR，文字层缺失或不足时自动回退到 OCR。
 - [ ] OCR 使用 RapidOCR、ONNX Runtime 和 PP-OCRv6 `small` 中文模型。
