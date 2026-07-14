@@ -7,7 +7,8 @@ import shutil
 from pypdf import PdfReader
 
 from .completion_matching import plan_completion_matches
-from .pdf_ops import replace_last_page, sha256_file
+from .date_completion import prepare_returned_page_with_date
+from .pdf_ops import replace_last_page_object, sha256_file
 from .returned_page_titles import (
     OCRPageFailure,
     read_returned_page_titles,
@@ -23,6 +24,8 @@ class CompletionItem:
     score: int | None = None
     output_path: Path | None = None
     reason: str | None = None
+    date_status: str = "not_requested"
+    date_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -137,10 +140,19 @@ def _duplicate_manifest_indexes(records, field, normalize):
     }
 
 
-def complete_processing_batch(batch_root, returned_pdf, output_root, ocr_engine=None):
+def complete_processing_batch(
+    batch_root,
+    returned_pdf,
+    output_root,
+    ocr_engine=None,
+    signing_date=None,
+):
     batch_root = Path(batch_root)
     returned_pdf = Path(returned_pdf)
     output_root = Path(output_root)
+    pending_date_status = (
+        "not_requested" if signing_date is None else "not_applied"
+    )
     completed_root = output_root / "completed-pdfs"
     if completed_root.exists():
         shutil.rmtree(completed_root)
@@ -194,6 +206,7 @@ def complete_processing_batch(batch_root, returned_pdf, output_root, ocr_engine=
                 working_paper_id,
                 "invalid_batch",
                 reason=str(error),
+                date_status=pending_date_status,
             )
 
     valid_items = [item for _, item in valid_entries]
@@ -216,6 +229,7 @@ def complete_processing_batch(batch_root, returned_pdf, output_root, ocr_engine=
                     returned_page=returned_page,
                     score=score,
                     reason="回章页对多个不同标题候选并列达到自动回拼阈值",
+                    date_status=pending_date_status,
                 )
                 continue
             candidate = matching.low_confidence.get(working_paper_id)
@@ -224,6 +238,7 @@ def complete_processing_batch(batch_root, returned_pdf, output_root, ocr_engine=
                     working_paper_id,
                     "unmatched",
                     reason="没有可匹配的回章页",
+                    date_status=pending_date_status,
                 )
             else:
                 returned_page, score = candidate
@@ -233,17 +248,26 @@ def complete_processing_batch(batch_root, returned_pdf, output_root, ocr_engine=
                     returned_page=returned_page,
                     score=score,
                     reason="最佳候选未达到 90 分自动回拼阈值",
+                    date_status=pending_date_status,
                 )
             continue
         output_path = None
+        date_status = pending_date_status
+        date_reason = None
         try:
             output_path = _output_path(output_root, item.working_paper_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            replace_last_page(
-                converted_paths[working_paper_id],
+            dated_page = prepare_returned_page_with_date(
                 returned_pdf,
+                match.returned_page - 1,
+                signing_date,
+            )
+            date_status = dated_page.status
+            date_reason = dated_page.reason
+            replace_last_page_object(
+                converted_paths[working_paper_id],
+                dated_page.page,
                 output_path,
-                returned_page_index=match.returned_page - 1,
             )
             outcomes[index] = CompletionItem(
                 working_paper_id,
@@ -251,6 +275,8 @@ def complete_processing_batch(batch_root, returned_pdf, output_root, ocr_engine=
                 returned_page=match.returned_page,
                 score=match.score,
                 output_path=output_path,
+                date_status=date_status,
+                date_reason=date_reason,
             )
         except Exception as error:
             if output_path is not None:
@@ -264,6 +290,8 @@ def complete_processing_batch(batch_root, returned_pdf, output_root, ocr_engine=
                 returned_page=match.returned_page,
                 score=match.score,
                 reason=str(error),
+                date_status=date_status,
+                date_reason=date_reason,
             )
 
     unused_pages = tuple(

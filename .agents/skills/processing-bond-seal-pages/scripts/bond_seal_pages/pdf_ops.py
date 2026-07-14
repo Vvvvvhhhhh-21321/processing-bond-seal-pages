@@ -72,21 +72,28 @@ def _read_replacement_pdf(path, role):
         raise ValueError(f"无法读取{role} PDF：{path}") from error
 
 
-def replace_last_page(target_path, returned_path, output_path, returned_page_index=0):
-    target_reader = _read_replacement_pdf(target_path, "目标")
+def _write_last_page_replacement(target_reader, returned_page, output_path):
     if not target_reader.pages:
         raise ValueError("目标 PDF 没有可替换的页面")
-    returned_reader = _read_replacement_pdf(returned_path, "回章页")
-    returned_page = _page(returned_reader, returned_page_index)
-
     writer = PdfWriter()
     for page in target_reader.pages[:-1]:
         writer.add_page(page)
     writer.add_page(returned_page)
-
     with Path(output_path).open("wb") as output:
         writer.write(output)
     return Path(output_path)
+
+
+def replace_last_page_object(target_path, returned_page, output_path):
+    target_reader = _read_replacement_pdf(target_path, "目标")
+    return _write_last_page_replacement(target_reader, returned_page, output_path)
+
+
+def replace_last_page(target_path, returned_path, output_path, returned_page_index=0):
+    target_reader = _read_replacement_pdf(target_path, "目标")
+    returned_reader = _read_replacement_pdf(returned_path, "回章页")
+    returned_page = _page(returned_reader, returned_page_index)
+    return _write_last_page_replacement(target_reader, returned_page, output_path)
 
 
 def render_pdf_page(path, page_index, scale=2.0):
@@ -171,12 +178,13 @@ def extract_date_anchors(path, page_index):
                 float(character["x1"]),
                 float(character["y1"]),
             )
+            font_size = float(character.get("size") or box.y1 - box.y0)
             anchors.append(
                 DateAnchor(
                     component=component,
                     box=box,
-                    baseline=float(character["y0"]),
-                    font_size=float(character.get("size") or box.y1 - box.y0),
+                    baseline=box.y0 + font_size * 0.8,
+                    font_size=font_size,
                 )
             )
         order = {"year": 0, "month": 1, "day": 2}
