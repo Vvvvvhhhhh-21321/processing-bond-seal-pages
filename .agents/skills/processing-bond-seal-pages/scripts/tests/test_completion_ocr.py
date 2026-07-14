@@ -112,6 +112,24 @@ class CompletionOCRTests(unittest.TestCase):
             self.assertEqual(result.items[0].status, "completed")
             self.assertEqual(len(ocr_engine.calls), 1)
 
+    def test_partial_residual_title_below_match_threshold_falls_back_to_ocr(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            batch_root = create_processing_batch(root, [("扫描型.docx", "扫描型确认函")])
+            returned_pdf = root / "returned.pdf"
+            write_scanned_pdf_pages(returned_pdf, [("white", "确认函")])
+            ocr_engine = StubOCREngine(("《扫描型确认函》",))
+
+            result = complete_processing_batch(
+                batch_root,
+                returned_pdf,
+                root / "回拼结果",
+                ocr_engine=ocr_engine,
+            )
+
+            self.assertEqual(result.items[0].status, "completed")
+            self.assertEqual(len(ocr_engine.calls), 1)
+
     def test_scanned_page_automatically_uses_rapidocr_adapter(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

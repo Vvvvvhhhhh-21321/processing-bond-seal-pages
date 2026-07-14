@@ -2,12 +2,10 @@ from dataclasses import dataclass
 
 from pypdf import PdfReader
 
+from .completion_matching import MATCH_THRESHOLD
 from .ocr import RapidOCRTitleEngine, extract_ocr_page_title
 from .seal_page_titles import extract_pdf_page_title
 from .titles import ReturnedTitle, title_similarity
-
-
-_MIN_TEXT_TITLE_RELEVANCE = 60
 
 
 @dataclass(frozen=True)
@@ -29,7 +27,7 @@ def _has_relevant_text_title(title, expected_titles):
     if not expected_titles:
         return True
     return any(
-        title_similarity(title, expected_title) >= _MIN_TEXT_TITLE_RELEVANCE
+        title_similarity(title, expected_title) >= MATCH_THRESHOLD
         for expected_title in expected_titles
     )
 
