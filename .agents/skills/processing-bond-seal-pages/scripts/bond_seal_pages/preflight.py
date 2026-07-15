@@ -345,6 +345,7 @@ def run_preflight(
     env=None,
     current_executable=_UNSET,
     selected_python=None,
+    require_converter=True,
     which=shutil.which,
     runner=subprocess.run,
     python_probe=None,
@@ -386,7 +387,12 @@ def run_preflight(
     )
     converter_executable = None
     if selected is not None:
-        modules = (*_BASE_PACKAGES, *(() if platform_name != "win32" else ("win32com.client",)))
+        windows_packages = (
+            ("win32com.client",)
+            if require_converter and platform_name == "win32"
+            else ()
+        )
+        modules = (*_BASE_PACKAGES, *windows_packages)
         package_probe = package_probe or (
             lambda candidate: _default_package_probe(candidate, runner, modules)
         )
@@ -426,7 +432,7 @@ def run_preflight(
             )
         )
 
-    if platform_name == "win32":
+    if require_converter and platform_name == "win32":
         locator = windows_word_locator or discover_windows_word
         converter_executable = locator()
         checks.append(
@@ -438,7 +444,7 @@ def run_preflight(
                 None if converter_executable else "需要安装 Microsoft Word；不会自动替换为其他转换器",
             )
         )
-    elif platform_name == "darwin":
+    elif require_converter and platform_name == "darwin":
         if mac_libreoffice_locator is None:
             from .word_conversion import discover_macos_libreoffice
 

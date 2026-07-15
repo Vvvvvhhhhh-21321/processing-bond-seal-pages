@@ -1,85 +1,75 @@
 ---
 name: processing-bond-seal-pages
-description: [TODO: Complete and informative explanation of what the skill does and when to use it. Include WHEN to use this skill - specific scenarios, file types, or tasks that trigger it.]
+description: 债券底稿盖章页的两阶段批次处理：从一批 .doc/.docx 底稿文件生成逐份不去重的待盖章页合集，或把客户乱序、缺页、含扫描页的回章页合集按标题匹配后原样回拼到底稿 PDF。用户提到批量提取最后一页供客户盖章、客户返回盖章 PDF、回章页匹配、盖章页回拼或底稿盖章处理时使用；当前不处理一份文件含多张签字页的发行文件。
 ---
 
-# Processing Bond Seal Pages
+# 债券底稿盖章页处理
 
-## Overview
+## 目标
 
-[TODO: 1-2 sentences explaining what this skill enables]
+用一个**处理批次**稳定连接两个阶段：先生成待盖章页合集，客户返回回章页合集后再复用同一批次完成回拼和处理清单。
 
-## Structuring This Skill
+脚本负责可重复、机械和高风险的文件操作；模型只判断业务阶段与范围、协助选择运行环境、解释最终异常。模型不自行重写 PDF、猜测低置信度匹配或绕过批次校验。
 
-[TODO: Choose the structure that best fits this skill's purpose. Common patterns:
+## 判定范围和阶段
 
-**1. Workflow-Based** (best for sequential processes)
-- Works well when there are clear step-by-step procedures
-- Example: DOCX skill with "Workflow Decision Tree" -> "Reading" -> "Creating" -> "Editing"
-- Structure: ## Overview -> ## Workflow Decision Tree -> ## Step 1 -> ## Step 2...
+当前业务对象是**底稿文件**：每份 `.doc` 或 `.docx` 只有一张盖章页，固定为最后一页。
 
-**2. Task-Based** (best for tool collections)
-- Works well when the skill offers different operations/capabilities
-- Example: PDF skill with "Quick Start" -> "Merge PDFs" -> "Split PDFs" -> "Extract Text"
-- Structure: ## Overview -> ## Quick Start -> ## Task Category 1 -> ## Task Category 2...
+| 已有输入 | 执行分支 |
+|---|---|
+| 底稿文件目录 | `prepare`：生成处理批次与待盖章页合集 |
+| 处理批次 + 回章页合集 PDF | `complete`：匹配、补日期、回拼并生成处理清单 |
 
-**3. Reference/Guidelines** (best for standards or specifications)
-- Works well for brand guidelines, coding standards, or requirements
-- Example: Brand styling with "Brand Guidelines" -> "Colors" -> "Typography" -> "Features"
-- Structure: ## Overview -> ## Guidelines -> ## Specifications -> ## Usage...
+遇到发行文件或一份文件包含多张签字页/盖章页时，退出当前流程，且不运行两个入口；说明这是后续扩展方向，实施前需另行定义多张签字页的发现、排序、文件内映射和回拼规则。第二阶段缺少原处理批次时，请用户提供第一阶段完整目录；处理批次是两个阶段的业务接缝，不重新转换 Word 或临时重建映射。
 
-**4. Capabilities-Based** (best for integrated systems)
-- Works well when the skill provides multiple interrelated features
-- Example: Product Management with "Core Capabilities" -> numbered capability list
-- Structure: ## Overview -> ## Core Capabilities -> ### 1. Feature -> ### 2. Feature...
+完成标准：已明确选择一个分支，且输入属于当前底稿文件边界。然后只读取对应阶段引用：
 
-Patterns can be mixed and matched as needed. Most skills combine patterns (e.g., start with task-based, add workflow for complex operations).
+- 选择 `prepare` 时，完整读取 [`references/prepare.md`](references/prepare.md) 后执行。
+- 选择 `complete` 时，完整读取 [`references/complete.md`](references/complete.md) 后执行。
 
-Delete this entire "Structuring This Skill" section when done - it's just guidance.]
+## 统一入口
 
-## [TODO: Replace with the first main section based on chosen structure]
+将本文件所在目录记为 `<skill-root>`，统一入口是：
 
-[TODO: Add content here. See examples in existing skills:
-- Code samples for technical skills
-- Decision trees for complex workflows
-- Concrete examples with realistic user requests
-- References to scripts/templates/references as needed]
+```text
+<skill-root>/scripts/run_bond_seal_pages.py
+```
 
-## Resources (optional)
+将前置检查最终选中的解释器记为 `<python>`。动态使用真实路径，不写死某台机器的 Python、Conda 或应用路径。
 
-Create only the resource directories this skill actually needs. Delete this section if no resources are required.
+命令输出 UTF-8 JSON：
 
-### scripts/
-Executable code (Python/Bash/etc.) that can be run directly to perform specific operations.
+- 退出码 `0`：工作流已完成；`status` 可能是 `completed` 或 `partial`。
+- 退出码 `2`：前置检查未通过，业务函数没有启动。
+- 退出码 `1`：批次级失败；保留错误信息，不宣称完成。
 
-**Examples from other skills:**
-- PDF skill: `fill_fillable_fields.py`, `extract_form_field_info.py` - utilities for PDF manipulation
-- DOCX skill: `document.py`, `utilities.py` - Python modules for document processing
+## 前置检查与安装同意
 
-**Appropriate for:** Python scripts, shell scripts, or any executable code that performs automation, data processing, or specific operations.
+在所选分支开始前运行对应检查：
 
-**Note:** Scripts may be executed without loading into context, but can still be read by Codex for patching or environment adjustments.
+```text
+"<python>" "<skill-root>/scripts/run_bond_seal_pages.py" preflight --stage prepare
+"<python>" "<skill-root>/scripts/run_bond_seal_pages.py" preflight --stage complete
+```
 
-### references/
-Documentation and reference material intended to be loaded into context to inform Codex's process and thinking.
+`prepare` 检查 Python、依赖、PP-OCRv6 small 模型和平台 Word 转换器；`complete` 不要求 Word/LibreOffice，但仍检查 Python、PDF 与 OCR 条件。
 
-**Examples from other skills:**
-- Product management: `communication.md`, `context_building.md` - detailed workflow guides
-- BigQuery: API reference documentation and query examples
-- Finance: Schema documentation, company policies
+按顺序处理未通过结果：
 
-**Appropriate for:** In-depth documentation, API references, database schemas, comprehensive guides, or any detailed information that Codex should reference while working.
+1. 向用户说明每个缺失项、目标 Python 和安装影响。
+2. 报告要求改用另一解释器时，用报告中的完整路径重跑；解释器 A 的检查结果不能授权解释器 B 处理。
+3. 出现同优先级候选时列出候选并让用户选择。脚本已优先当前激活的 Conda/Anaconda，其次当前执行环境，再其次系统候选。
+4. 用户明确同意安装后，才在同一命令追加 `--approved-install-plan`。先展示计划，再逐条执行用户同意的命令。
+5. 安装后重新运行普通检查，直到 JSON `status` 为 `ready`。
 
-### assets/
-Files not intended to be loaded into context, but rather used within the output Codex produces.
+环境变化保持单点、可见：只修改唯一选中的 Python；机器没有 Python 时按计划使用 winget、Homebrew 或人工安装；不创建私有回退环境，也不向多个 Python/Conda 环境同时安装。
 
-**Examples from other skills:**
-- Brand styling: PowerPoint template files (.pptx), logo files
-- Frontend builder: HTML/React boilerplate project directories
-- Typography: Font files (.ttf, .woff2)
+完成标准：JSON `ready` 为 `true`，且当前解释器就是 `selected_python`。用户拒绝安装时停止并报告，不创建处理批次或回拼结果。
 
-**Appropriate for:** Templates, boilerplate code, document templates, images, icons, fonts, or any files meant to be copied or used in the final output.
+## 判断边界
 
----
+模型可以选择阶段、识别是否超出底稿文件范围、向用户解释环境候选，并在完成后归纳处理清单中的异常。
 
-**Not every skill requires all three types of resources.**
+脚本决定文件遍历、Word 转换、最后一页提取、哈希校验、文字/OCR 路由、90 分阈值、同标题分配与复用、日期落位、PDF 页面替换和 HTML 清单生成。低置信度、歧义、无标题、缺页和单文件失败进入最终清单，流程中间不暂停逐页复核。
+
+当前能力不检查是否已经盖章，也不判断印章真伪或盖章主体。表格页识别代码保留给未来发行文件扩展，但不接入当前底稿文件流程。

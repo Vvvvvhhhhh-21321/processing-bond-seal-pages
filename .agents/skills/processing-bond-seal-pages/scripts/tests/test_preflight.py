@@ -257,6 +257,28 @@ class PreflightTests(unittest.TestCase):
 
             self.assertFalse(batch_root.exists())
 
+    def test_completion_preflight_does_not_require_word_converter_or_pywin32(self):
+        current = "C:/Python/python.exe"
+        result = run_preflight(
+            platform_name="win32",
+            env={},
+            current_executable=current,
+            require_converter=False,
+            which=lambda name: None,
+            python_probe=lambda command: runtime(current),
+            package_probe=lambda candidate: REQUIRED_PACKAGES,
+            model_cache_ready=lambda: True,
+            windows_word_locator=lambda: (_ for _ in ()).throw(
+                AssertionError("第二阶段不应检查 Word")
+            ),
+        )
+
+        self.assertTrue(result.ready)
+        self.assertNotIn(
+            "dependency:win32com.client",
+            {check.key for check in result.checks},
+        )
+
     def test_unsupported_platform_is_not_ready(self):
         result = run_preflight(
             platform_name="linux",
