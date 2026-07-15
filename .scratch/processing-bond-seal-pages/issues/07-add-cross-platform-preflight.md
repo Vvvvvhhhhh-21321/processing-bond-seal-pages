@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — 从 Windows Word 生成处理批次。
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 - [ ] 动态发现系统 Python、Python 启动器、当前 Conda/Anaconda 环境和当前执行环境，不写死机器路径。
 - [ ] 多个 Python 可用时优先当前激活的 Conda 环境，其次当前执行环境；仍有歧义时列出候选让用户选择。
