@@ -13,6 +13,7 @@ from .date_completion import (
     prepare_returned_page_with_date,
 )
 from .pdf_ops import replace_last_page_object, sha256_file
+from .processing_report import write_processing_report
 from .returned_page_titles import (
     OCRPageFailure,
     read_returned_page_titles,
@@ -46,6 +47,7 @@ class CompletionBatchResult:
     items: tuple[CompletionItem, ...]
     unused_pages: tuple[int, ...]
     output_root: Path
+    report_path: Path
     ocr_failures: tuple[OCRPageFailure, ...] = ()
 
     @property
@@ -205,6 +207,14 @@ def complete_processing_batch(
             else ""
         )
         try:
+            if isinstance(record, dict) and record.get("status") == "failed":
+                outcomes[index] = CompletionItem(
+                    working_paper_id,
+                    "conversion_failed",
+                    reason=str(record.get("error") or "底稿文件转换失败"),
+                    date_result=pending_date_result,
+                )
+                continue
             if index in duplicate_id_indexes:
                 raise ValueError("底稿文件标识在处理批次中重复")
             if index in duplicate_path_indexes:
@@ -308,9 +318,20 @@ def complete_processing_batch(
     unused_pages = tuple(
         sorted(set(matching.unused_pages) | set(returned_pages.untitled_pages))
     )
-    return CompletionBatchResult(
-        tuple(outcomes),
-        unused_pages,
+    report_path = write_processing_report(
+        batch_root,
+        returned_pdf,
         output_root,
+        records,
+        outcomes,
         returned_pages.ocr_failures,
+        working_paper_root=manifest.get("working_paper_root"),
+        seal_pages_name=manifest.get("seal_pages", "seal-pages.pdf"),
+    )
+    return CompletionBatchResult(
+        items=tuple(outcomes),
+        unused_pages=unused_pages,
+        output_root=output_root,
+        report_path=report_path,
+        ocr_failures=returned_pages.ocr_failures,
     )
