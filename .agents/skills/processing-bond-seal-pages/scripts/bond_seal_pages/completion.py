@@ -7,7 +7,11 @@ import shutil
 from pypdf import PdfReader
 
 from .completion_matching import plan_completion_matches
-from .date_completion import prepare_returned_page_with_date
+from .date_completion import (
+    SigningDateResult,
+    SigningDateStatus,
+    prepare_returned_page_with_date,
+)
 from .pdf_ops import replace_last_page_object, sha256_file
 from .returned_page_titles import (
     OCRPageFailure,
@@ -24,8 +28,17 @@ class CompletionItem:
     score: int | None = None
     output_path: Path | None = None
     reason: str | None = None
-    date_status: str = "not_requested"
-    date_reason: str | None = None
+    date_result: SigningDateResult = SigningDateResult(
+        SigningDateStatus.NOT_REQUESTED
+    )
+
+    @property
+    def date_status(self):
+        return self.date_result.status.value
+
+    @property
+    def date_reason(self):
+        return self.date_result.reason
 
 
 @dataclass(frozen=True)
@@ -150,8 +163,10 @@ def complete_processing_batch(
     batch_root = Path(batch_root)
     returned_pdf = Path(returned_pdf)
     output_root = Path(output_root)
-    pending_date_status = (
-        "not_requested" if signing_date is None else "not_applied"
+    pending_date_result = SigningDateResult(
+        SigningDateStatus.NOT_REQUESTED
+        if signing_date is None
+        else SigningDateStatus.NOT_APPLIED
     )
     completed_root = output_root / "completed-pdfs"
     if completed_root.exists():
@@ -206,7 +221,7 @@ def complete_processing_batch(
                 working_paper_id,
                 "invalid_batch",
                 reason=str(error),
-                date_status=pending_date_status,
+                date_result=pending_date_result,
             )
 
     valid_items = [item for _, item in valid_entries]
@@ -229,7 +244,7 @@ def complete_processing_batch(
                     returned_page=returned_page,
                     score=score,
                     reason="回章页对多个不同标题候选并列达到自动回拼阈值",
-                    date_status=pending_date_status,
+                    date_result=pending_date_result,
                 )
                 continue
             candidate = matching.low_confidence.get(working_paper_id)
@@ -238,7 +253,7 @@ def complete_processing_batch(
                     working_paper_id,
                     "unmatched",
                     reason="没有可匹配的回章页",
-                    date_status=pending_date_status,
+                    date_result=pending_date_result,
                 )
             else:
                 returned_page, score = candidate
@@ -248,12 +263,11 @@ def complete_processing_batch(
                     returned_page=returned_page,
                     score=score,
                     reason="最佳候选未达到 90 分自动回拼阈值",
-                    date_status=pending_date_status,
+                    date_result=pending_date_result,
                 )
             continue
         output_path = None
-        date_status = pending_date_status
-        date_reason = None
+        date_result = pending_date_result
         try:
             output_path = _output_path(output_root, item.working_paper_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -262,8 +276,7 @@ def complete_processing_batch(
                 match.returned_page - 1,
                 signing_date,
             )
-            date_status = dated_page.status
-            date_reason = dated_page.reason
+            date_result = dated_page.result
             replace_last_page_object(
                 converted_paths[working_paper_id],
                 dated_page.page,
@@ -275,8 +288,7 @@ def complete_processing_batch(
                 returned_page=match.returned_page,
                 score=match.score,
                 output_path=output_path,
-                date_status=date_status,
-                date_reason=date_reason,
+                date_result=date_result,
             )
         except Exception as error:
             if output_path is not None:
@@ -290,8 +302,7 @@ def complete_processing_batch(
                 returned_page=match.returned_page,
                 score=match.score,
                 reason=str(error),
-                date_status=date_status,
-                date_reason=date_reason,
+                date_result=date_result,
             )
 
     unused_pages = tuple(

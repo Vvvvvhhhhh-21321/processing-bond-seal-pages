@@ -1,10 +1,9 @@
 from dataclasses import dataclass
+from enum import Enum
 from io import BytesIO
 import re
 
 from pypdf import PdfReader, PdfWriter
-from reportlab.pdfgen.canvas import Canvas
-
 from .date_layout import plan_date_insertions
 from .pdf_ops import extract_date_anchors, extract_text_boxes
 
@@ -17,12 +16,82 @@ _COMPONENT_LABELS = {
 _TRAILING_DIGITS = re.compile(r"(\d+)\s*$")
 
 
+class SigningDateStatus(str, Enum):
+    NOT_REQUESTED = "not_requested"
+    NOT_APPLIED = "not_applied"
+    FILLED = "filled"
+    ALREADY_PRESENT = "already_present"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class SigningDateResult:
+    status: SigningDateStatus
+    reason: str | None = None
+
+
 @dataclass(frozen=True)
 class DatedPage:
     page: object
-    status: str
-    reason: str | None = None
+    result: SigningDateResult
 
+
+def _dated_page(page, status, reason=None):
+    return DatedPage(page, SigningDateResult(status, reason))
+
+
+
+def _same_date_line(first, second):
+    tolerance = max(first.font_size, second.font_size) * 0.5
+    return abs(first.box.y0 - second.box.y0) <= tolerance
+
+
+def _date_anchor_groups(anchors):
+    groups = []
+    years = sorted(
+        (anchor for anchor in anchors if anchor.component == "year"),
+        key=lambda anchor: (anchor.box.y0, anchor.box.x0),
+    )
+    for year in years:
+        months = [
+            anchor
+            for anchor in anchors
+            if anchor.component == "month"
+            and anchor.box.x0 > year.box.x0
+            and _same_date_line(year, anchor)
+        ]
+        if not months:
+            continue
+        month = min(months, key=lambda anchor: anchor.box.x0)
+        days = [
+            anchor
+            for anchor in anchors
+            if anchor.component == "day"
+            and anchor.box.x0 > month.box.x0
+            and _same_date_line(month, anchor)
+        ]
+        if days:
+            groups.append((year, month, min(days, key=lambda anchor: anchor.box.x0)))
+    return tuple(groups)
+
+
+def _select_bottom_date_anchor_group(anchors):
+    """选择页面最下方的完整日期行；同行多组时安全失败，不猜测。"""
+    groups = _date_anchor_groups(anchors)
+    if not groups:
+        raise ValueError("未找到同一行的年、月、日落款日期区域")
+
+    bottom_y = min(sum(anchor.box.y0 for anchor in group) / 3 for group in groups)
+    bottom_groups = [
+        group
+        for group in groups
+        if abs(sum(anchor.box.y0 for anchor in group) / 3 - bottom_y)
+        <= max(anchor.font_size for anchor in group) * 0.5
+    ]
+    if len(bottom_groups) != 1:
+        raise ValueError("页面最下方存在多个落款日期候选区域")
+    return bottom_groups[0]
 
 def _existing_date_components(anchors, text_boxes):
     existing = {}
@@ -53,6 +122,13 @@ def _existing_date_components(anchors, text_boxes):
 
 
 def _overlay_date_placements(page, placements):
+    try:
+        from reportlab.pdfgen.canvas import Canvas
+    except ImportError as error:
+        raise RuntimeError(
+            "缺少日期写入依赖 reportlab，请先安装后再试"
+        ) from error
+
     overlay_buffer = BytesIO()
     canvas = Canvas(
         overlay_buffer,
@@ -87,10 +163,12 @@ def _clone_returned_page(returned_pdf, page_index):
 def prepare_returned_page_with_date(returned_pdf, page_index, signing_date):
     page = _clone_returned_page(returned_pdf, page_index)
     if signing_date is None:
-        return DatedPage(page, "not_requested")
+        return _dated_page(page, SigningDateStatus.NOT_REQUESTED)
 
     try:
-        anchors = extract_date_anchors(returned_pdf, page_index)
+        anchors = _select_bottom_date_anchor_group(
+            extract_date_anchors(returned_pdf, page_index)
+        )
         text_boxes = extract_text_boxes(returned_pdf, page_index)
         occupied = tuple(text_box.box for text_box in text_boxes)
         existing = _existing_date_components(anchors, text_boxes)
@@ -104,14 +182,22 @@ def prepare_returned_page_with_date(returned_pdf, page_index, signing_date):
             _overlay_date_placements(page, plan.placements)
     except Exception as error:
         reason = str(error) or error.__class__.__name__
-        return DatedPage(
+        return _dated_page(
             _clone_returned_page(returned_pdf, page_index),
-            "failed",
+            SigningDateStatus.FAILED,
             f"日期补齐失败：{reason}",
         )
 
     if not plan.skipped:
-        status = "already_present" if not plan.placements else "filled"
-        return DatedPage(page, status)
-    status = "partial" if plan.placements else "failed"
-    return DatedPage(page, status, _skipped_reason(plan.skipped))
+        status = (
+            SigningDateStatus.ALREADY_PRESENT
+            if not plan.placements
+            else SigningDateStatus.FILLED
+        )
+        return _dated_page(page, status)
+    status = (
+        SigningDateStatus.PARTIAL
+        if plan.placements
+        else SigningDateStatus.FAILED
+    )
+    return _dated_page(page, status, _skipped_reason(plan.skipped))
