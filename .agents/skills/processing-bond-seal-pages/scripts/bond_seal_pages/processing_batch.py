@@ -79,17 +79,32 @@ def _failed_item(item, converted_path, error):
     item.update({"status": "failed", "error": message})
 
 
-def prepare_processing_batch(working_paper_root, batch_root, converter=None):
+def prepare_processing_batch(
+    working_paper_root,
+    batch_root,
+    converter=None,
+    preflight_result=None,
+):
     working_paper_root = Path(working_paper_root)
     batch_root = Path(batch_root)
     _validate_directories(working_paper_root, batch_root)
-    _prepare_output_directory(batch_root)
 
     owned_converter = converter is None
-    if owned_converter:
-        from .word_conversion import WindowsWordPdfConverter
+    if preflight_result is not None or owned_converter:
+        from .preflight import require_preflight_ready, run_preflight
 
-        converter = WindowsWordPdfConverter()
+        preflight_result = preflight_result or run_preflight()
+        require_preflight_ready(preflight_result)
+    if owned_converter:
+        from .word_conversion import create_platform_word_pdf_converter
+
+        converter = create_platform_word_pdf_converter()
+    try:
+        _prepare_output_directory(batch_root)
+    except Exception:
+        if owned_converter:
+            converter.close()
+        raise
 
     items = []
     seal_pages = PdfWriter()

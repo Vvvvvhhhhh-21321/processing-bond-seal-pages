@@ -85,6 +85,15 @@ class RapidOCRTitleEngine:
         return tuple(result.txts or ())
 
 
+def prepare_ocr_models(cache_dir=None):
+    engine = RapidOCRTitleEngine(cache_dir=cache_dir)
+    engine._get_engine()
+    engine.cache_dir.mkdir(parents=True, exist_ok=True)
+    marker = engine.cache_dir / ".ppocrv6-small-ready"
+    marker.write_text("PP-OCRv6 small\n", encoding="utf-8")
+    return engine.cache_dir
+
+
 def extract_ocr_page_title(pdf_path, page_number, engine):
     recognized_lines = engine.recognize_page(pdf_path, page_number)
     return extract_text_title("\n".join(recognized_lines))

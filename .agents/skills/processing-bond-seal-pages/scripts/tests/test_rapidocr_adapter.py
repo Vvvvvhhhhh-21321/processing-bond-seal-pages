@@ -8,7 +8,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from bond_seal_pages.ocr import RapidOCRTitleEngine  # noqa: E402
+from bond_seal_pages.ocr import RapidOCRTitleEngine, prepare_ocr_models  # noqa: E402
 from completion_test_support import (  # noqa: E402
     make_fake_pymupdf_module,
     make_fake_rapidocr_module,
@@ -74,6 +74,26 @@ class RapidOCRAdapterTests(unittest.TestCase):
             self.assertEqual(
                 calls[0][1],
                 {"use_det": True, "use_cls": True, "use_rec": True},
+            )
+
+    def test_model_preparation_writes_offline_ready_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache_dir = Path(directory) / "models"
+            rapidocr_module = make_fake_rapidocr_module((), [], [])
+
+            with patch.dict(
+                sys.modules,
+                {
+                    "onnxruntime": object(),
+                    "rapidocr": rapidocr_module,
+                },
+            ):
+                prepared_dir = prepare_ocr_models(cache_dir)
+
+            self.assertEqual(prepared_dir, cache_dir)
+            self.assertEqual(
+                (cache_dir / ".ppocrv6-small-ready").read_text(encoding="utf-8"),
+                "PP-OCRv6 small\n",
             )
 
 
