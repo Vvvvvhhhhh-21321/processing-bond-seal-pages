@@ -7,6 +7,14 @@ tmp/
 dist/
 processing-bond-seal-pages-workspace/
 
+# Local development sources are not part of the published skill
+.scratch/
+docs/
+AGENTS.md
+CONTEXT.md
+.agents/skills/processing-bond-seal-pages/evals/
+.agents/skills/processing-bond-seal-pages/scripts/tests/
+
 # Real business materials must never be published
 素材/
 
