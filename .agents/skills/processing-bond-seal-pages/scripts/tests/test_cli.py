@@ -58,7 +58,13 @@ class CliTests(unittest.TestCase):
 
         output = StringIO()
         code = main(
-            ["prepare", "底稿文件", "处理批次"],
+            [
+                "prepare",
+                "底稿文件",
+                "处理批次",
+                "--duplicate-policy",
+                "keep",
+            ],
             preflight_runner=preflight_runner,
             prepare_runner=prepare_runner,
             output=output,
@@ -72,6 +78,21 @@ class CliTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["require_converter"], True)
         self.assertEqual(calls[1][1:3], (Path("底稿文件"), Path("处理批次")))
         self.assertIs(calls[1][3]["preflight_result"], preflight)
+        self.assertEqual(calls[1][3]["duplicate_policy"], "keep")
+
+    def test_prepare_requires_an_explicit_duplicate_policy(self):
+        with patch("sys.stderr", new=StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                main(
+                    ["prepare", "底稿文件", "处理批次"],
+                    preflight_runner=lambda **options: ready_preflight(),
+                    prepare_runner=lambda *args, **kwargs: self.fail(
+                        "未选择去重策略时不应启动业务处理"
+                    ),
+                    output=StringIO(),
+                )
+
+        self.assertEqual(raised.exception.code, 2)
 
     def test_complete_skips_converter_check_and_reports_all_outcomes(self):
         preflight = ready_preflight()
@@ -187,7 +208,13 @@ class CliTests(unittest.TestCase):
             batch_root = Path(directory) / "处理批次"
             output = StringIO()
             code = main(
-                ["prepare", "底稿文件", str(batch_root)],
+                [
+                    "prepare",
+                    "底稿文件",
+                    str(batch_root),
+                    "--duplicate-policy",
+                    "keep",
+                ],
                 preflight_runner=lambda **options: preflight,
                 prepare_runner=lambda *args, **kwargs: self.fail("不应启动业务处理"),
                 output=output,

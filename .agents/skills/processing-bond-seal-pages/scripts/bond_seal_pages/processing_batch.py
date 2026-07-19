@@ -14,6 +14,8 @@ from .titles import normalize_title
 class ProcessingBatchResult:
     succeeded: int
     failed: int
+    excluded_duplicates: int
+    duplicate_policy: str
     seal_pages_path: Path
     manifest_path: Path
 
@@ -27,6 +29,50 @@ def _working_paper_files(working_paper_root):
         ),
         key=lambda path: path.relative_to(working_paper_root).as_posix(),
     )
+
+
+def _prepare_inventory(working_paper_root, duplicate_policy):
+    if duplicate_policy not in {"keep", "deduplicate"}:
+        raise ValueError("重复文件策略必须是 keep 或 deduplicate")
+
+    candidates = []
+    excluded_duplicates = []
+    first_by_hash = {}
+    for working_paper_path in _working_paper_files(working_paper_root):
+        relative_path = working_paper_path.relative_to(working_paper_root)
+        working_paper_id = relative_path.as_posix()
+        item = {
+            "working_paper_id": working_paper_id,
+            "working_paper_path": working_paper_id,
+        }
+        try:
+            working_paper_hash = sha256_file(working_paper_path)
+        except Exception as error:
+            item.update(
+                {
+                    "status": "failed",
+                    "error": f"无法读取底稿文件：{str(error) or error.__class__.__name__}",
+                }
+            )
+            candidates.append((working_paper_path, relative_path, None, item))
+            continue
+
+        duplicate_of = first_by_hash.get(working_paper_hash)
+        if duplicate_policy == "deduplicate" and duplicate_of is not None:
+            excluded_duplicates.append(
+                {
+                    "working_paper_id": working_paper_id,
+                    "working_paper_path": working_paper_id,
+                    "working_paper_sha256": working_paper_hash,
+                    "duplicate_of": duplicate_of,
+                }
+            )
+            continue
+        first_by_hash.setdefault(working_paper_hash, working_paper_id)
+        candidates.append(
+            (working_paper_path, relative_path, working_paper_hash, item)
+        )
+    return candidates, excluded_duplicates
 
 
 def _converted_path(batch_root, relative_working_paper):
@@ -84,10 +130,15 @@ def prepare_processing_batch(
     batch_root,
     converter=None,
     preflight_result=None,
+    duplicate_policy="keep",
 ):
     working_paper_root = Path(working_paper_root)
     batch_root = Path(batch_root)
     _validate_directories(working_paper_root, batch_root)
+    inventory, excluded_duplicates = _prepare_inventory(
+        working_paper_root,
+        duplicate_policy,
+    )
 
     owned_converter = converter is None
     if preflight_result is not None or owned_converter:
@@ -109,16 +160,13 @@ def prepare_processing_batch(
     items = []
     seal_pages = PdfWriter()
     try:
-        for working_paper_path in _working_paper_files(working_paper_root):
-            relative_working_paper = working_paper_path.relative_to(working_paper_root)
+        for working_paper_path, relative_working_paper, working_paper_hash, item in inventory:
+            if item.get("status") == "failed":
+                items.append(item)
+                continue
             converted_path = _converted_path(batch_root, relative_working_paper)
-            item = {
-                "working_paper_id": relative_working_paper.as_posix(),
-                "working_paper_path": relative_working_paper.as_posix(),
-            }
             try:
                 converted_path.parent.mkdir(parents=True, exist_ok=True)
-                working_paper_hash = sha256_file(working_paper_path)
                 converter.convert(working_paper_path, converted_path)
                 reader = PdfReader(str(converted_path))
                 if not reader.pages:
@@ -155,6 +203,8 @@ def prepare_processing_batch(
                 "version": 1,
                 "working_paper_root": str(working_paper_root.resolve()),
                 "seal_pages": seal_pages_path.name,
+                "duplicate_policy": duplicate_policy,
+                "excluded_duplicates": excluded_duplicates,
                 "items": items,
             },
             ensure_ascii=False,
@@ -164,7 +214,9 @@ def prepare_processing_batch(
     )
     return ProcessingBatchResult(
         succeeded=len(seal_pages.pages),
-        failed=len(items) - len(seal_pages.pages),
+        failed=sum(item.get("status") == "failed" for item in items),
+        excluded_duplicates=len(excluded_duplicates),
+        duplicate_policy=duplicate_policy,
         seal_pages_path=seal_pages_path,
         manifest_path=manifest_path,
     )

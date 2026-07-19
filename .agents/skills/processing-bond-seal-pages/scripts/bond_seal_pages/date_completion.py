@@ -4,7 +4,9 @@ from io import BytesIO
 import re
 
 from pypdf import PdfReader, PdfWriter
+
 from .date_layout import plan_date_insertions
+from .date_registration import DateRegistrationResult, register_date_anchor_result
 from .pdf_ops import extract_date_anchors, extract_text_boxes
 
 
@@ -20,6 +22,7 @@ class SigningDateStatus(str, Enum):
     NOT_REQUESTED = "not_requested"
     NOT_APPLIED = "not_applied"
     FILLED = "filled"
+    FILLED_NEEDS_REVIEW = "filled_needs_review"
     ALREADY_PRESENT = "already_present"
     PARTIAL = "partial"
     FAILED = "failed"
@@ -39,7 +42,6 @@ class DatedPage:
 
 def _dated_page(page, status, reason=None):
     return DatedPage(page, SigningDateResult(status, reason))
-
 
 
 def _same_date_line(first, second):
@@ -92,6 +94,7 @@ def _select_bottom_date_anchor_group(anchors):
     if len(bottom_groups) != 1:
         raise ValueError("页面最下方存在多个落款日期候选区域")
     return bottom_groups[0]
+
 
 def _existing_date_components(anchors, text_boxes):
     existing = {}
@@ -160,15 +163,69 @@ def _clone_returned_page(returned_pdf, page_index):
     return writer.pages[0]
 
 
-def prepare_returned_page_with_date(returned_pdf, page_index, signing_date):
+def _registered_template_anchors(
+    returned_pdf,
+    page_index,
+    template_pdf,
+    template_page_index,
+):
+    template_anchors = _select_bottom_date_anchor_group(
+        extract_date_anchors(template_pdf, template_page_index)
+    )
+    registration = register_date_anchor_result(
+        template_pdf,
+        template_page_index,
+        returned_pdf,
+        page_index,
+        template_anchors,
+    )
+    return DateRegistrationResult(
+        _select_bottom_date_anchor_group(registration.anchors),
+        registration.method,
+        registration.score,
+        registration.needs_review,
+        registration.reason,
+    )
+
+
+def prepare_returned_page_with_date(
+    returned_pdf,
+    page_index,
+    signing_date,
+    template_pdf=None,
+    template_page_index=None,
+):
     page = _clone_returned_page(returned_pdf, page_index)
     if signing_date is None:
         return _dated_page(page, SigningDateStatus.NOT_REQUESTED)
 
+    registration_result = None
     try:
-        anchors = _select_bottom_date_anchor_group(
-            extract_date_anchors(returned_pdf, page_index)
-        )
+        if (template_pdf is None) != (template_page_index is None):
+            raise ValueError("日期模板 PDF 和模板页码必须同时提供")
+        if template_pdf is None:
+            anchors = _select_bottom_date_anchor_group(
+                extract_date_anchors(returned_pdf, page_index)
+            )
+        else:
+            try:
+                registration_result = _registered_template_anchors(
+                    returned_pdf,
+                    page_index,
+                    template_pdf,
+                    template_page_index,
+                )
+                anchors = registration_result.anchors
+            except Exception as registration_error:
+                try:
+                    anchors = _select_bottom_date_anchor_group(
+                        extract_date_anchors(returned_pdf, page_index)
+                    )
+                except Exception as text_error:
+                    raise ValueError(
+                        f"模板配准失败：{registration_error}；"
+                        f"回章页文字定位失败：{text_error}"
+                    ) from registration_error
         text_boxes = extract_text_boxes(returned_pdf, page_index)
         occupied = tuple(text_box.box for text_box in text_boxes)
         existing = _existing_date_components(anchors, text_boxes)
@@ -189,15 +246,22 @@ def prepare_returned_page_with_date(returned_pdf, page_index, signing_date):
         )
 
     if not plan.skipped:
-        status = (
-            SigningDateStatus.ALREADY_PRESENT
-            if not plan.placements
-            else SigningDateStatus.FILLED
-        )
-        return _dated_page(page, status)
+        if not plan.placements:
+            return _dated_page(page, SigningDateStatus.ALREADY_PRESENT)
+        if registration_result is not None and registration_result.needs_review:
+            return _dated_page(
+                page,
+                SigningDateStatus.FILLED_NEEDS_REVIEW,
+                registration_result.reason,
+            )
+        return _dated_page(page, SigningDateStatus.FILLED)
+
     status = (
         SigningDateStatus.PARTIAL
         if plan.placements
         else SigningDateStatus.FAILED
     )
-    return _dated_page(page, status, _skipped_reason(plan.skipped))
+    reason = _skipped_reason(plan.skipped)
+    if registration_result is not None and registration_result.needs_review:
+        reason = f"{registration_result.reason}；{reason}"
+    return _dated_page(page, status, reason)

@@ -19,6 +19,7 @@ DATE_LABELS = {
     "not_requested": "未要求补日期",
     "not_applied": "未应用",
     "filled": "已补齐",
+    "filled_needs_review": "已补齐（需重点核对）",
     "already_present": "原页已有完整日期",
     "partial": "部分补齐",
     "failed": "补齐失败",
@@ -59,7 +60,15 @@ def _report_status(item):
     return item.status
 
 
-def _row_html(returned_pdf, seal_pages_pdf, record, item, source_root):
+def _row_html(
+    returned_pdf,
+    seal_pages_pdf,
+    record,
+    item,
+    source_root,
+    returned_pdf_label,
+    returned_page_prefix,
+):
     if not isinstance(record, dict):
         record = {}
     status = _report_status(item)
@@ -94,7 +103,9 @@ def _row_html(returned_pdf, seal_pages_pdf, record, item, source_root):
         else _local_file_link(seal_pages_pdf, seal_ref, f"page={seal_page}")
     )
     returned_ref = (
-        "—" if item.returned_page is None else f"回章页 #{item.returned_page}"
+        "—"
+        if item.returned_page is None
+        else f"{returned_page_prefix} #{item.returned_page}"
     )
     returned_display = (
         returned_ref
@@ -118,7 +129,7 @@ def _row_html(returned_pdf, seal_pages_pdf, record, item, source_root):
           <p class="title-line">{escape(title)}</p>
           <dl class="trace-grid">
             <div><dt>待盖章页合集</dt><dd>{seal_display}</dd></div>
-            <div><dt>回章页合集</dt><dd>{returned_display}</dd></div>
+            <div><dt>{escape(returned_pdf_label)}</dt><dd>{returned_display}</dd></div>
             <div><dt>日期结果</dt><dd>{escape(date_label)}</dd></div>
             <div><dt>输出 PDF</dt><dd>{output_display}</dd></div>
           </dl>
@@ -150,6 +161,8 @@ def write_processing_report(
     ocr_failures,
     working_paper_root=None,
     seal_pages_name="seal-pages.pdf",
+    returned_pdf_label="回章页合集",
+    returned_page_prefix="回章页",
 ):
     output_root = Path(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -162,6 +175,8 @@ def write_processing_report(
             record,
             item,
             working_paper_root,
+            returned_pdf_label,
+            returned_page_prefix,
         )
         for record, item in zip(records, items)
     )

@@ -21,16 +21,16 @@ def _signing_date(value):
 
 def _parser():
     parser = argparse.ArgumentParser(
-        description="处理债券底稿文件的待盖章页合集与回章页回拼",
+        description="处理债券底稿文件的待盖章页合集、日期确认与回章页回拼",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     preflight = subparsers.add_parser("preflight", help="只执行前置检查")
     preflight.add_argument(
         "--stage",
-        choices=("prepare", "complete"),
+        choices=("prepare", "date-review", "finalize", "complete"),
         default="prepare",
-        help="prepare 检查 Word 转换器；complete 不要求转换器",
+        help="只有 prepare 检查 Word 转换器；其余阶段不要求转换器",
     )
     preflight.add_argument("--python", dest="selected_python")
     preflight.add_argument(
@@ -43,8 +43,34 @@ def _parser():
     prepare.add_argument("working_paper_root", type=Path)
     prepare.add_argument("batch_root", type=Path)
     prepare.add_argument("--python", dest="selected_python")
+    prepare.add_argument(
+        "--duplicate-policy",
+        choices=("keep", "deduplicate"),
+        required=True,
+        help="keep 保留全部 Word；deduplicate 按文件 SHA-256 排除重复 Word",
+    )
 
-    complete = subparsers.add_parser("complete", help="使用回章页合集完成回拼")
+    date_review = subparsers.add_parser(
+        "date-review",
+        help="匹配并生成一份已落日期的待确认 PDF，不回拼底稿",
+    )
+    date_review.add_argument("batch_root", type=Path)
+    date_review.add_argument("returned_pdf", type=Path)
+    date_review.add_argument("review_root", type=Path)
+    date_review.add_argument("--python", dest="selected_python")
+    date_review.add_argument("--signing-date", type=_signing_date)
+
+    finalize = subparsers.add_parser(
+        "finalize",
+        help="用户确认日期稿后，按已保存的匹配关系回拼",
+    )
+    finalize.add_argument("batch_root", type=Path)
+    finalize.add_argument("review_root", type=Path)
+    finalize.add_argument("output_root", type=Path)
+    finalize.add_argument("--python", dest="selected_python")
+    finalize.add_argument("--confirmed", action="store_true", required=True)
+
+    complete = subparsers.add_parser("complete", help="兼容旧版一体化回拼流程")
     complete.add_argument("batch_root", type=Path)
     complete.add_argument("returned_pdf", type=Path)
     complete.add_argument("output_root", type=Path)
@@ -92,6 +118,8 @@ def _prepare_payload(result):
         "status": "completed" if result.failed == 0 else "partial",
         "succeeded": result.succeeded,
         "failed": result.failed,
+        "duplicate_policy": getattr(result, "duplicate_policy", None),
+        "excluded_duplicates": getattr(result, "excluded_duplicates", 0),
         "seal_pages_pdf": str(result.seal_pages_path),
         "manifest": str(result.manifest_path),
     }
@@ -111,7 +139,77 @@ def _complete_item_payload(item):
     }
 
 
-def _complete_payload(result):
+def _review_pages_requiring_attention(result):
+    return sorted(
+        {
+            item.returned_page
+            for item in result.items
+            if getattr(item, "date_status", None) == "filled_needs_review"
+            and getattr(item, "returned_page", None) is not None
+        }
+    )
+
+
+def _date_review_confirmation_message(result, attention_pages):
+    lines = [f"已生成已落日期的盖章页确认稿：{result.review_pdf}。"]
+    if attention_pages:
+        pages = "、".join(str(page) for page in attention_pages)
+        lines.append(
+            f"第 {pages} 页的日期定位结果需要重点核对；"
+            "系统已采用较可靠的定位结果落日期。"
+        )
+    lines.append(
+        "请检查日期是否正确。你可以使用金山 PDF 修改页面内容，"
+        "但不要增删页面，也不要改变页面顺序。"
+    )
+    lines.append("确认无误后请回复“确认回拼”。")
+    return "\n".join(lines)
+
+
+def _date_review_payload(result):
+    outcomes = Counter(item.status for item in result.items)
+    date_outcomes = Counter(
+        item.date_status
+        for item in result.items
+        if getattr(item, "date_status", None)
+    )
+    partial = (
+        result.succeeded != len(result.items)
+        or bool(result.unused_pages)
+        or bool(result.ocr_failures)
+        or any(
+            status in {"failed", "partial", "filled_needs_review"}
+            for status in date_outcomes
+        )
+    )
+    attention_pages = _review_pages_requiring_attention(result)
+    return {
+        "command": "date-review",
+        "status": "awaiting_confirmation",
+        "review_result": "partial" if partial else "completed",
+        "requires_user_confirmation": True,
+        "review_pages_requiring_attention": attention_pages,
+        "confirmation_message": _date_review_confirmation_message(
+            result,
+            attention_pages,
+        ),
+        "total": len(result.items),
+        "ready_for_review": result.succeeded,
+        "outcomes": dict(sorted(outcomes.items())),
+        "items": [_complete_item_payload(item) for item in result.items],
+        "date_outcomes": dict(sorted(date_outcomes.items())),
+        "unused_pages": list(result.unused_pages),
+        "ocr_failures": [
+            {"page": failure.page, "reason": failure.reason}
+            for failure in result.ocr_failures
+        ],
+        "review_root": str(result.review_root),
+        "review_pdf": str(result.review_pdf),
+        "manifest": str(result.manifest_path),
+    }
+
+
+def _complete_payload(result, command="complete"):
     outcomes = Counter(item.status for item in result.items)
     date_outcomes = Counter(
         item.date_status
@@ -128,7 +226,7 @@ def _complete_payload(result):
         or has_date_anomaly
     )
     return {
-        "command": "complete",
+        "command": command,
         "status": "partial" if partial else "completed",
         "total": len(result.items),
         "succeeded": result.succeeded,
@@ -152,6 +250,8 @@ def main(
     installation_plan_builder=build_installation_plan,
     prepare_runner=None,
     complete_runner=None,
+    date_review_runner=None,
+    finalize_runner=None,
     output=None,
 ):
     output = _utf8_stdout() if output is None else output
@@ -200,8 +300,37 @@ def main(
                 args.working_paper_root,
                 args.batch_root,
                 preflight_result=preflight_result,
+                duplicate_policy=args.duplicate_policy,
             )
             _emit(_prepare_payload(result), output)
+            return 0
+
+        if args.command == "date-review":
+            if date_review_runner is None:
+                from .review_workflow import create_date_review
+
+                date_review_runner = create_date_review
+            result = date_review_runner(
+                args.batch_root,
+                args.returned_pdf,
+                args.review_root,
+                signing_date=args.signing_date,
+            )
+            _emit(_date_review_payload(result), output)
+            return 0
+
+        if args.command == "finalize":
+            if finalize_runner is None:
+                from .review_workflow import finalize_date_review
+
+                finalize_runner = finalize_date_review
+            result = finalize_runner(
+                args.batch_root,
+                args.review_root,
+                args.output_root,
+                confirmed=args.confirmed,
+            )
+            _emit(_complete_payload(result, command="finalize"), output)
             return 0
 
         if complete_runner is None:

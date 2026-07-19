@@ -12,6 +12,8 @@ _MINIMUM_PYTHON = (3, 10)
 _BASE_PACKAGES = (
     "rapidocr",
     "onnxruntime",
+    "numpy",
+    "cv2",
     "pypdf",
     "pdfplumber",
     "pypdfium2",
@@ -21,6 +23,8 @@ _BASE_PACKAGES = (
 _PIP_NAMES = {
     "rapidocr": "rapidocr>=3.9.0",
     "onnxruntime": "onnxruntime",
+    "numpy": "numpy",
+    "cv2": "opencv-python-headless",
     "pypdf": "pypdf",
     "pdfplumber": "pdfplumber",
     "pypdfium2": "pypdfium2",
@@ -141,15 +145,15 @@ def _default_python_probe(command, runner):
 def _default_package_probe(candidate, runner, modules):
     module_names = json.dumps(modules)
     probe = f"""
-import importlib.util
+import importlib
 import json
 modules = json.loads({module_names!r})
 result = {{}}
 for module in modules:
     try:
-        parent = module.split('.', 1)[0]
-        result[module] = importlib.util.find_spec(parent) is not None and importlib.util.find_spec(module) is not None
-    except (ImportError, ModuleNotFoundError):
+        importlib.import_module(module)
+        result[module] = True
+    except Exception:
         result[module] = False
 print(json.dumps(result))
 """

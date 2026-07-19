@@ -1,0 +1,15 @@
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Local test and evaluation outputs
+tmp/
+dist/
+processing-bond-seal-pages-workspace/
+
+# Real business materials must never be published
+素材/
+
+# OS metadata
+.DS_Store
+Thumbs.db

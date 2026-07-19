@@ -285,6 +285,8 @@ def complete_processing_batch(
                 returned_pdf,
                 match.returned_page - 1,
                 signing_date,
+                template_pdf=converted_paths[working_paper_id],
+                template_page_index=item.pdf_page_count - 1,
             )
             date_result = dated_page.result
             replace_last_page_object(

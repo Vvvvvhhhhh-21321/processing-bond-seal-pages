@@ -20,6 +20,8 @@ from bond_seal_pages.processing_batch import prepare_processing_batch  # noqa: E
 REQUIRED_PACKAGES = {
     "rapidocr": True,
     "onnxruntime": True,
+    "numpy": True,
+    "cv2": True,
     "pypdf": True,
     "pdfplumber": True,
     "pypdfium2": True,
@@ -185,6 +187,8 @@ class PreflightTests(unittest.TestCase):
         packages = dict(REQUIRED_PACKAGES)
         packages["rapidocr"] = False
         packages["onnxruntime"] = False
+        packages["numpy"] = False
+        packages["cv2"] = False
 
         result = run_preflight(
             platform_name="win32",
@@ -201,6 +205,8 @@ class PreflightTests(unittest.TestCase):
         report = format_preflight_report(result)
         self.assertIn("rapidocr", report)
         self.assertIn("onnxruntime", report)
+        self.assertIn("numpy", report)
+        self.assertIn("cv2", report)
         self.assertIn("首次模型准备需要联网", report)
         self.assertIn("未执行任何安装", report)
         with self.assertRaisesRegex(PermissionError, "用户同意"):
@@ -215,6 +221,8 @@ class PreflightTests(unittest.TestCase):
         joined = " ".join(plan.commands[0])
         self.assertIn("rapidocr>=3.9.0", joined)
         self.assertIn("onnxruntime", joined)
+        self.assertIn("numpy", joined)
+        self.assertIn("opencv-python-headless", joined)
         model_setup = plan.commands[1][-1]
         path_setup = model_setup.split("from bond_seal_pages", 1)[0]
         path_setup += "print(sys.path[0])"
