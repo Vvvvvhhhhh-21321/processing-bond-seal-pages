@@ -38,7 +38,7 @@ flowchart LR
 
 ## 推荐模型
 
-推荐 GPT-5.6 Sol medium；成本优先时可使用 GPT-5.6 Terra xhigh。两者应具备图像输入能力。
+推荐 GPT-5.6 Sol medium；成本优先时可使用 GPT-5.6 Terra xhigh。在 WorkBuddy 中，也可使用 Kimi K3。应优先选择具备图像输入能力的实际模型。
 
 模型和推理档位是推荐配置，不是 Skill 元数据可以强制的硬门槛。没有图像输入能力时，确定性脚本流程仍可运行，但日期补字页必须人工核对。
 
