@@ -1,40 +1,60 @@
-# 阶段一：生成处理批次
+# 项目初始化与待签署材料
 
-## 输入与命令
+本文件记录模型内部执行细节。与用户交流时只说自然语言业务动作，不展示命令。
 
-准备两个互相独立的目录：底稿文件目录和处理批次目录。处理批次目录宜与底稿文件目录并列，避免把生成物混入原文件树。
+## 新建项目
 
-先完成 `SKILL.md` 的 `prepare` 前置检查，再运行：
+内部入口为 `scripts/run_bond_seal_pages.py`。根据实际组装载项目父目录、项目名、发行人说明性文件目录、项目组分析文件目录，以及已经取得的移动确认。
 
-```text
-"<python>" "<skill-root>/scripts/run_bond_seal_pages.py" prepare "<底稿文件目录>" "<处理批次目录>" --duplicate-policy keep
-"<python>" "<skill-root>/scripts/run_bond_seal_pages.py" prepare "<底稿文件目录>" "<处理批次目录>" --duplicate-policy deduplicate
-```
+初始化后核对：
 
-只运行与用户选择对应的一条命令。不得省略 `--duplicate-policy`：
+- 状态是 `initialized` 或有效项目的 `resumed`。
+- `moved_files` 等于两个输入目录中发现的 Word 总数。
+- Word 位于对应组的 `原始Word/`，相对目录保持不变；其他文件仍在原位置。
+- 只为实际提供的签署文件组创建目录。
+- 项目根目录的 `项目状态_project.json` 存在；处理数据清理后仍保留该小型状态文件。
 
-- `keep`：保留全部 Word。
-- `deduplicate`：在任何 Word 转换前计算全部源文件 SHA-256；每组只保留路径排序最前的一份，其他重复文件完全退出后续流程。
+目标冲突、输入组互相包含、输入不在共同项目文件夹、没有 Word 或未确认移动时停止，不开始转换。
 
-## 脚本行为
+## 已有项目
 
-- 递归读取 `.doc` 与 `.docx`，不修改原 Word。
-- 在 Word 转换前计算源文件哈希；文件名、标题和页面外观不参与去重判断。
-- Windows 调用 Microsoft Word，macOS 调用 LibreOffice 无界面转换。
-- 只为筛选后保留的底稿保存完整 PDF，并逐份提取最后一页。
-- 同标题但哈希不同的 Word 全部保留；哈希相同的 Word 是否排除只取决于用户选择。
-- 生成 `seal-pages.pdf` 与 `manifest.json`；单文件转换失败写入清单，其他文件继续。
-- 再次运行时覆盖本流程生成物，同时保留处理批次中的无关文件。
+先读取项目状态。逐组向用户概括：
 
-## 验证
+- `initialized`：需要准备待签署材料。
+- `prepared`：等待对应签署回页。
+- `returned_received`：需要重新生成日期确认稿。
+- `date_review_ready`：需要视觉复核或用户日期确认。
+- `completed`：该组已完成且没有遗留重点项。
+- `completed_with_attention`：该组已完成，但仍有已由用户接受的重点项。
+- `word_changes_detected`：列出新增、修改、缺失 Word，等待用户确认补建。
+- `artifact_changes_detected`：关键成果缺失或哈希变化，停止自动续接并要求检查。
 
-核对 JSON 与文件：
+状态一致的已完成阶段不得重新运行。
 
-- `seal_pages_pdf` 和 `manifest` 均存在。
-- `succeeded + failed + excluded_duplicates` 等于本次发现的底稿文件数。
-- `seal-pages.pdf` 页数等于 `succeeded`。
-- `manifest.json` 的 `duplicate_policy` 与用户选择一致；`items` 只包含参与流程的底稿，成功项包含完整 PDF、标题、合集页码、页数和校验值；排除项只记录在 `excluded_duplicates`。
+## 准备一个签署文件组
 
-向用户报告成功数、失败数、排除的重复文件数、待盖章页合集位置和处理批次位置。若有排除项，明确说明这些文件不会参与匹配或生成最终文件。让用户把 `seal-pages.pdf` 发给客户，并完整保留处理批次供第二阶段使用。
+用户选定重复文件策略后执行组准备。内部策略值：
 
-完成标准：上述文件与数量一致。JSON `status` 为 `partial` 时，批次仍已生成；逐项报告失败后结束。
+- `individual` 对应“每份单独签署”。
+- `reuse` 对应“完全重复文件复用签署页”。
+
+核对：
+
+- 发行人组生成 `<项目名>_发行人待盖章页合集.pdf`。
+- 项目组生成 `<项目名>_项目组签字页合集.pdf`。
+- 完整底稿 PDF 位于该组处理数据的 `完整底稿PDF/`。
+- 处理批次清单名为 `处理批次清单_manifest.json`。
+- `reuse` 时，同一哈希组只有一个合集页，但清单中的每份 Word 都有记录；代表转换失败时会尝试其他副本。
+- 单文件失败不阻塞其他文件，必须向用户报告失败项。
+
+两组分别执行、分别报告。不要把一组的策略或状态默认为另一组。
+
+## 内部动作映射
+
+仅供模型组装确定性调用：
+
+- 初始化：`project-init`
+- 读取状态：`project-status`
+- 准备某组：`project-prepare`
+
+命令输出均为 UTF-8 JSON。退出码 `0` 才表示当前动作完成；退出码 `2` 表示环境检查未通过且业务动作未启动；退出码 `1` 表示失败。向用户转述业务含义，不复述命令行。

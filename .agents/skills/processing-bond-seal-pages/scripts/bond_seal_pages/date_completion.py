@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from enum import Enum
 from io import BytesIO
+import os
+from pathlib import Path
 import re
 
 from pypdf import PdfReader, PdfWriter
@@ -16,6 +18,8 @@ _COMPONENT_LABELS = {
     "day": "日",
 }
 _TRAILING_DIGITS = re.compile(r"(\d+)\s*$")
+_TIMES_NEW_ROMAN_FONT_NAME = "TimesNewRoman"
+_REGISTERED_TIMES_NEW_ROMAN_PATH = None
 
 
 class SigningDateStatus(str, Enum):
@@ -38,10 +42,11 @@ class SigningDateResult:
 class DatedPage:
     page: object
     result: SigningDateResult
+    placements: tuple = ()
 
 
-def _dated_page(page, status, reason=None):
-    return DatedPage(page, SigningDateResult(status, reason))
+def _dated_page(page, status, reason=None, placements=()):
+    return DatedPage(page, SigningDateResult(status, reason), tuple(placements))
 
 
 def _same_date_line(first, second):
@@ -124,7 +129,68 @@ def _existing_date_components(anchors, text_boxes):
     return existing
 
 
-def _overlay_date_placements(page, placements):
+def _times_new_roman_candidates():
+    candidates = []
+    windows_root = os.environ.get("WINDIR")
+    if windows_root:
+        candidates.append(Path(windows_root) / "Fonts" / "times.ttf")
+    candidates.extend(
+        (
+            Path("C:/Windows/Fonts/times.ttf"),
+            Path("/Library/Fonts/Times New Roman.ttf"),
+            Path.home() / "Library/Fonts/Times New Roman.ttf",
+        )
+    )
+    return tuple(dict.fromkeys(candidates))
+
+
+def ensure_times_new_roman_font(font_path=None):
+    global _REGISTERED_TIMES_NEW_ROMAN_PATH
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+    except ImportError as error:
+        raise RuntimeError(
+            "缺少日期写入依赖 reportlab，请先安装后再试"
+        ) from error
+
+    if font_path is None and _REGISTERED_TIMES_NEW_ROMAN_PATH is not None:
+        return _TIMES_NEW_ROMAN_FONT_NAME
+    if font_path is None:
+        font_path = next(
+            (candidate for candidate in _times_new_roman_candidates() if candidate.is_file()),
+            None,
+        )
+    else:
+        font_path = Path(font_path)
+    if font_path is None or not font_path.is_file():
+        raise RuntimeError(
+            "找不到真正的 Times New Roman 常规字体；请安装 Times New Roman 后再处理日期"
+        )
+    resolved_path = font_path.resolve()
+    if _REGISTERED_TIMES_NEW_ROMAN_PATH == resolved_path:
+        return _TIMES_NEW_ROMAN_FONT_NAME
+
+    try:
+        font = TTFont(_TIMES_NEW_ROMAN_FONT_NAME, str(resolved_path))
+        family_name = font.face.familyName
+        if isinstance(family_name, bytes):
+            family_name = family_name.decode("utf-8", errors="replace")
+        normalized_family = re.sub(r"[^a-z]", "", str(family_name).casefold())
+        if "timesnewroman" not in normalized_family:
+            raise RuntimeError(f"字体文件不是 Times New Roman：{resolved_path}")
+        pdfmetrics.registerFont(font)
+    except RuntimeError:
+        raise
+    except Exception as error:
+        raise RuntimeError(
+            f"无法注册 Times New Roman 字体：{resolved_path}：{error}"
+        ) from error
+    _REGISTERED_TIMES_NEW_ROMAN_PATH = resolved_path
+    return _TIMES_NEW_ROMAN_FONT_NAME
+
+
+def _overlay_date_placements(page, placements, font_path=None):
     try:
         from reportlab.pdfgen.canvas import Canvas
     except ImportError as error:
@@ -132,6 +198,7 @@ def _overlay_date_placements(page, placements):
             "缺少日期写入依赖 reportlab，请先安装后再试"
         ) from error
 
+    font_name = ensure_times_new_roman_font(font_path)
     overlay_buffer = BytesIO()
     canvas = Canvas(
         overlay_buffer,
@@ -139,7 +206,7 @@ def _overlay_date_placements(page, placements):
     )
     for placement in placements:
         font_size = placement.box.y1 - placement.box.y0
-        canvas.setFont("Helvetica", font_size)
+        canvas.setFont(font_name, font_size)
         canvas.drawString(
             placement.box.x0,
             placement.box.y0 + font_size * 0.2,
@@ -161,6 +228,18 @@ def _clone_returned_page(returned_pdf, page_index):
     writer = PdfWriter()
     writer.add_page(reader.pages[page_index])
     return writer.pages[0]
+
+
+def apply_date_placements_to_original(
+    returned_pdf,
+    page_index,
+    placements,
+    *,
+    font_path=None,
+):
+    page = _clone_returned_page(returned_pdf, page_index)
+    _overlay_date_placements(page, tuple(placements), font_path)
+    return page
 
 
 def _registered_template_anchors(
@@ -194,6 +273,7 @@ def prepare_returned_page_with_date(
     signing_date,
     template_pdf=None,
     template_page_index=None,
+    font_path=None,
 ):
     page = _clone_returned_page(returned_pdf, page_index)
     if signing_date is None:
@@ -236,7 +316,7 @@ def prepare_returned_page_with_date(
             occupied,
         )
         if plan.placements:
-            _overlay_date_placements(page, plan.placements)
+            _overlay_date_placements(page, plan.placements, font_path)
     except Exception as error:
         reason = str(error) or error.__class__.__name__
         return _dated_page(
@@ -253,8 +333,9 @@ def prepare_returned_page_with_date(
                 page,
                 SigningDateStatus.FILLED_NEEDS_REVIEW,
                 registration_result.reason,
+                plan.placements,
             )
-        return _dated_page(page, SigningDateStatus.FILLED)
+        return _dated_page(page, SigningDateStatus.FILLED, placements=plan.placements)
 
     status = (
         SigningDateStatus.PARTIAL
@@ -264,4 +345,4 @@ def prepare_returned_page_with_date(
     reason = _skipped_reason(plan.skipped)
     if registration_result is not None and registration_result.needs_review:
         reason = f"{registration_result.reason}；{reason}"
-    return _dated_page(page, status, reason)
+    return _dated_page(page, status, reason, plan.placements)

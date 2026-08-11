@@ -165,6 +165,7 @@ def _write_review_pdf(returned_pdf, review_pdf, matched_templates, signing_date)
 
     writer = PdfWriter()
     date_results = {}
+    date_placements = {}
     for page_index, page in enumerate(reader.pages):
         page_number = page_index + 1
         if page_number not in matched_templates:
@@ -180,6 +181,7 @@ def _write_review_pdf(returned_pdf, review_pdf, matched_templates, signing_date)
             )
             writer.add_page(dated_page.page)
             date_results[page_number] = dated_page.result
+            date_placements[page_number] = dated_page.placements
         except Exception as error:
             writer.add_page(page)
             date_results[page_number] = SigningDateResult(
@@ -195,7 +197,23 @@ def _write_review_pdf(returned_pdf, review_pdf, matched_templates, signing_date)
         temporary_path.replace(review_pdf)
     finally:
         temporary_path.unlink(missing_ok=True)
-    return page_count, date_results
+    return page_count, date_results, date_placements
+
+
+def _placement_record(placement):
+    return {
+        "component": placement.component,
+        "value": placement.value,
+        "box": {
+            "x0": placement.box.x0,
+            "y0": placement.box.y0,
+            "x1": placement.box.x1,
+            "y1": placement.box.y1,
+        },
+        "baseline": placement.baseline,
+        "scale": placement.scale,
+        "source": placement.source,
+    }
 
 
 def _item_record(item):
@@ -218,6 +236,7 @@ def _write_review_manifest(
     items,
     unused_pages,
     ocr_failures,
+    date_placements,
 ):
     manifest_path = review_root / _REVIEW_MANIFEST_NAME
     payload = {
@@ -232,6 +251,10 @@ def _write_review_manifest(
             {"page": failure.page, "reason": failure.reason}
             for failure in ocr_failures
         ],
+        "date_placements": {
+            str(page): [_placement_record(placement) for placement in placements]
+            for page, placements in sorted(date_placements.items())
+        },
     }
     temporary_path = manifest_path.with_suffix(".json.tmp")
     try:
@@ -280,7 +303,7 @@ def create_date_review(
                 item.pdf_page_count - 1,
             ),
         )
-    page_count, date_results = _write_review_pdf(
+    page_count, date_results, date_placements = _write_review_pdf(
         returned_pdf,
         review_pdf,
         matched_templates,
@@ -317,6 +340,7 @@ def create_date_review(
         outcomes,
         unused_pages,
         returned_pages.ocr_failures,
+        date_placements,
     )
     return DateReviewBatchResult(
         items=tuple(outcomes),

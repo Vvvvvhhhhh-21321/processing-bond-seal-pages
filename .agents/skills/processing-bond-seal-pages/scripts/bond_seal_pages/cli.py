@@ -76,6 +76,104 @@ def _parser():
     complete.add_argument("output_root", type=Path)
     complete.add_argument("--python", dest="selected_python")
     complete.add_argument("--signing-date", type=_signing_date)
+
+    project_init = subparsers.add_parser(
+        "project-init",
+        help="内部：初始化签署页处理项目",
+    )
+    project_init.add_argument("project_parent", type=Path)
+    project_init.add_argument("project_name")
+    project_init.add_argument("--issuer-source", type=Path)
+    project_init.add_argument("--project-team-source", type=Path)
+    project_init.add_argument("--confirmed", action="store_true", required=True)
+
+    project_status = subparsers.add_parser(
+        "project-status",
+        help="内部：读取签署页处理项目状态",
+    )
+    project_status.add_argument("project_root", type=Path)
+
+    project_prepare = subparsers.add_parser(
+        "project-prepare",
+        help="内部：生成一个签署文件组的待签署材料",
+    )
+    project_prepare.add_argument("project_root", type=Path)
+    project_prepare.add_argument("group", choices=("issuer", "project_team"))
+    project_prepare.add_argument(
+        "--duplicate-policy",
+        choices=("individual", "reuse"),
+        required=True,
+    )
+    project_prepare.add_argument("--python", dest="selected_python")
+
+    project_review = subparsers.add_parser(
+        "project-date-review",
+        help="内部：接收签署回页并生成日期确认稿",
+    )
+    project_review.add_argument("project_root", type=Path)
+    project_review.add_argument("group", choices=("issuer", "project_team"))
+    project_review.add_argument("returned_pdf", type=Path)
+    project_review.add_argument("--signing-date", type=_signing_date)
+    project_review.add_argument("--python", dest="selected_python")
+
+    visual_package = subparsers.add_parser(
+        "project-visual-package",
+        help="内部：渲染待模型复核的日期页面",
+    )
+    visual_package.add_argument("project_root", type=Path)
+    visual_package.add_argument("group", choices=("issuer", "project_team"))
+    visual_package.add_argument("--python", dest="selected_python")
+
+    visual_apply = subparsers.add_parser(
+        "project-visual-apply",
+        help="内部：应用模型给出的日期坐标",
+    )
+    visual_apply.add_argument("project_root", type=Path)
+    visual_apply.add_argument("group", choices=("issuer", "project_team"))
+    visual_apply.add_argument("page", type=int)
+    visual_apply.add_argument("--proposal-json", default="{}")
+    visual_apply.add_argument(
+        "--model-decision",
+        choices=("approved", "needs_adjustment", "unable_to_determine"),
+        required=True,
+    )
+    visual_apply.add_argument("--python", dest="selected_python")
+
+    visual_skip = subparsers.add_parser(
+        "project-visual-skip",
+        help="内部：记录当前模型不支持图像输入",
+    )
+    visual_skip.add_argument("project_root", type=Path)
+    visual_skip.add_argument("group", choices=("issuer", "project_team"))
+
+    project_finalize = subparsers.add_parser(
+        "project-finalize",
+        help="内部：确认日期并生成分组最终成果",
+    )
+    project_finalize.add_argument("project_root", type=Path)
+    project_finalize.add_argument("group", choices=("issuer", "project_team"))
+    project_finalize.add_argument("--confirmed", action="store_true", required=True)
+    project_finalize.add_argument("--accept-attention", action="store_true")
+    project_finalize.add_argument("--python", dest="selected_python")
+
+    project_rebuild = subparsers.add_parser(
+        "project-rebuild",
+        help="内部：依据当前 Word 与签署回页补建处理数据",
+    )
+    project_rebuild.add_argument("project_root", type=Path)
+    project_rebuild.add_argument("group", choices=("issuer", "project_team"))
+    project_rebuild.add_argument("--returned-pdf", type=Path)
+    project_rebuild.add_argument("--signing-date", type=_signing_date)
+    project_rebuild.add_argument("--confirmed", action="store_true", required=True)
+    project_rebuild.add_argument("--python", dest="selected_python")
+
+    project_clean = subparsers.add_parser(
+        "project-clean",
+        help="内部：经独立确认后把处理数据移入系统回收站",
+    )
+    project_clean.add_argument("project_root", type=Path)
+    project_clean.add_argument("--confirmed", action="store_true", required=True)
+    project_clean.add_argument("--accept-attention", action="store_true")
     return parser
 
 
@@ -93,11 +191,11 @@ def _emit(payload, output):
 
 
 def _preflight(args, preflight_runner):
-    require_converter = args.command == "prepare" or (
+    require_converter = args.command in {"prepare", "project-prepare", "project-rebuild"} or (
         args.command == "preflight" and args.stage == "prepare"
     )
     return preflight_runner(
-        selected_python=args.selected_python,
+        selected_python=getattr(args, "selected_python", None),
         require_converter=require_converter,
     )
 
@@ -257,8 +355,18 @@ def main(
     output = _utf8_stdout() if output is None else output
     args = _parser().parse_args(argv)
     try:
-        preflight_result = _preflight(args, preflight_runner)
-        preflight_payload = _preflight_payload(preflight_result)
+        no_preflight_commands = {
+            "project-init",
+            "project-status",
+            "project-visual-skip",
+            "project-clean",
+        }
+        if args.command in no_preflight_commands:
+            preflight_result = None
+            preflight_payload = None
+        else:
+            preflight_result = _preflight(args, preflight_runner)
+            preflight_payload = _preflight_payload(preflight_result)
         if args.command == "preflight":
             payload = {
                 "command": "preflight",
@@ -280,7 +388,7 @@ def main(
             _emit(payload, output)
             return 0 if preflight_result.ready else 2
 
-        if not preflight_result.ready:
+        if preflight_result is not None and not preflight_result.ready:
             _emit(
                 {
                     "command": args.command,
@@ -290,6 +398,176 @@ def main(
                 output,
             )
             return 2
+
+        if args.command.startswith("project-"):
+            from .project_workflow import (
+                apply_visual_date_calibration,
+                clean_project_processing_data,
+                create_group_date_review,
+                finalize_signing_group,
+                initialize_signing_project,
+                inspect_signing_project,
+                prepare_signing_group,
+                prepare_visual_review_package,
+                rebuild_signing_group,
+                skip_group_visual_review,
+            )
+
+            if args.command == "project-init":
+                sources = {
+                    key: value
+                    for key, value in (
+                        ("issuer", args.issuer_source),
+                        ("project_team", args.project_team_source),
+                    )
+                    if value is not None
+                }
+                result = initialize_signing_project(
+                    args.project_parent,
+                    args.project_name,
+                    sources,
+                    confirmed=args.confirmed,
+                )
+                payload = {
+                    "command": args.command,
+                    "status": "resumed" if result.resumed else "initialized",
+                    "project_root": str(result.project_root),
+                    "manifest": str(result.manifest_path),
+                    "moved_files": result.moved_files,
+                    "requires_confirmation": result.requires_confirmation,
+                }
+            elif args.command == "project-status":
+                result = inspect_signing_project(args.project_root)
+                payload = {
+                    "command": args.command,
+                    "status": result.status,
+                    "project_root": str(result.project_root),
+                    "groups": result.groups,
+                    "requires_confirmation": result.requires_confirmation,
+                }
+            elif args.command == "project-prepare":
+                result = prepare_signing_group(
+                    args.project_root,
+                    args.group,
+                    duplicate_policy=args.duplicate_policy,
+                    preflight_result=preflight_result,
+                )
+                payload = {
+                    "command": args.command,
+                    "status": "completed" if result.failed == 0 else "partial",
+                    "group": result.group_key,
+                    "collection": str(result.collection_path),
+                    "batch_manifest": str(result.batch_manifest_path),
+                    "succeeded": result.succeeded,
+                    "failed": result.failed,
+                }
+            elif args.command == "project-date-review":
+                result = create_group_date_review(
+                    args.project_root,
+                    args.group,
+                    args.returned_pdf,
+                    signing_date=args.signing_date,
+                )
+                payload = {
+                    "command": args.command,
+                    "status": "awaiting_visual_review",
+                    "group": result.group_key,
+                    "returned_original": str(result.returned_original),
+                    "review_pdf": str(result.review_pdf),
+                    "review_manifest": str(result.review_manifest_path),
+                    "succeeded": result.succeeded,
+                    "attention_pages": list(result.attention_pages),
+                }
+            elif args.command == "project-visual-package":
+                result = prepare_visual_review_package(
+                    args.project_root,
+                    args.group,
+                )
+                payload = {
+                    "command": args.command,
+                    "status": "ready" if result.pages else "not_required",
+                    "group": result.group_key,
+                    "pages": list(result.pages),
+                    "log": str(result.log_path),
+                }
+            elif args.command == "project-visual-apply":
+                proposals = json.loads(args.proposal_json)
+                result = apply_visual_date_calibration(
+                    args.project_root,
+                    args.group,
+                    args.page,
+                    proposals,
+                    model_decision=args.model_decision,
+                )
+                payload = {
+                    "command": args.command,
+                    "status": result.status,
+                    "group": result.group_key,
+                    "page": result.page_number,
+                    "round": result.round_number,
+                    "accepted": result.accepted,
+                    "reason": result.reason,
+                    "log": str(result.log_path),
+                }
+            elif args.command == "project-visual-skip":
+                result = skip_group_visual_review(
+                    args.project_root,
+                    args.group,
+                )
+                payload = {
+                    "command": args.command,
+                    "status": "skipped_no_image_input",
+                    "group": result.group_key,
+                    "log": str(result.log_path),
+                }
+            elif args.command == "project-finalize":
+                result = finalize_signing_group(
+                    args.project_root,
+                    args.group,
+                    confirmed=args.confirmed,
+                    accept_attention=args.accept_attention,
+                )
+                payload = {
+                    "command": args.command,
+                    "status": "completed" if result.failed == 0 else "partial",
+                    "group": result.group_key,
+                    "result_root": str(result.result_root),
+                    "report": str(result.report_path),
+                    "succeeded": result.succeeded,
+                    "failed": result.failed,
+                }
+            elif args.command == "project-rebuild":
+                result = rebuild_signing_group(
+                    args.project_root,
+                    args.group,
+                    confirmed=args.confirmed,
+                    returned_pdf=args.returned_pdf,
+                    signing_date=args.signing_date,
+                    preflight_result=preflight_result,
+                )
+                payload = {
+                    "command": args.command,
+                    "status": "awaiting_visual_review",
+                    "group": result.group_key,
+                    "warning": result.warning,
+                    "review_pdf": str(result.review.review_pdf),
+                    "attention_pages": list(result.review.attention_pages),
+                }
+            else:
+                result = clean_project_processing_data(
+                    args.project_root,
+                    confirmed=args.confirmed,
+                    accept_attention=args.accept_attention,
+                )
+                payload = {
+                    "command": args.command,
+                    "status": "cleaned",
+                    "project_root": str(result.project_root),
+                    "cleaned_path": str(result.cleaned_path),
+                    "groups": list(result.groups),
+                }
+            _emit(payload, output)
+            return 0
 
         if args.command == "prepare":
             if prepare_runner is None:

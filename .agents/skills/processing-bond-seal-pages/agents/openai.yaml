@@ -1,4 +1,4 @@
 interface:
-  display_name: "债券底稿盖章页处理"
-  short_description: "可选哈希去重，生成待盖章页、日期确认稿并回拼"
-  default_prompt: "使用 $processing-bond-seal-pages 处理债券底稿盖章页：判断是生成处理批次、生成日期确认稿并暂停，还是在用户确认后回拼；prepare 前确认用户选择保留全部 Word 或按文件哈希排除重复文件，再执行对应前置检查。"
+  display_name: "债券底稿签署页处理"
+  short_description: "分组生成签署页、视觉校准日期、续接并回拼"
+  default_prompt: "使用 $processing-bond-seal-pages 通过自然语言处理债券底稿签署页：识别新建、续接或补建阶段，分开发行人说明性文件与项目组分析文件，脚本使用真正的 Times New Roman 初始落日期；有图像能力时逐页给出通过、需调整或无法判断的视觉结论，无图像能力时标记人工复核，用户确认后再回拼。"
