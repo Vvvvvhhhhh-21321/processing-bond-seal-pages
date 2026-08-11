@@ -1,8 +1,25 @@
 # 债券底稿签署页处理 Skill
 
-这是一个面向债券项目底稿的 Codex Skill，用自然语言完成签署页准备、回页匹配、Times New Roman 日期补齐、视觉校准、确认回拼和项目清理。
+[![最新版本](https://img.shields.io/github/v/release/Vvvvvhhhhh-21321/processing-bond-seal-pages?label=release)](https://github.com/Vvvvvhhhhh-21321/processing-bond-seal-pages/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+这是一个面向债券项目底稿的 Codex Skill。用户只需说明原始 Word、签署回页或现有项目的位置，即可用自然语言完成文件分组、签署页准备、乱序回页匹配、Times New Roman 日期补齐、视觉校准、确认回拼和项目清理。
+
+当前正式版本为 [`v1.1.0`](https://github.com/Vvvvvhhhhh-21321/processing-bond-seal-pages/releases/tag/v1.1.0)。这一版本将原有批次脚本升级为可续接的项目工作流，并加入分组成果、重复签署页复用、处理数据补建和视觉日期校准。
 
 当前只处理“每份 Word 的最后一页是唯一签署页”的底稿文件，不处理一份文件包含多张签字页的发行文件，也不判断印章真伪或签字人身份。
+
+## 工作流一览
+
+```mermaid
+flowchart LR
+    A["整理并分组原始 Word"] --> B["分别生成盖章页或签字页合集"]
+    B --> C["接收乱序、缺页或扫描签署回页"]
+    C --> D["脚本补日期，视觉模型校准位置"]
+    D --> E["用户确认日期稿"]
+    E --> F["回拼并生成分组成果与清单"]
+    F --> G["用户确认后清理过程数据"]
+```
 
 ## 能力
 
@@ -24,6 +41,16 @@
 推荐 GPT-5.6 Sol medium；成本优先时可使用 GPT-5.6 Terra xhigh。两者应具备图像输入能力。
 
 模型和推理档位是推荐配置，不是 Skill 元数据可以强制的硬门槛。没有图像输入能力时，确定性脚本流程仍可运行，但日期补字页必须人工核对。
+
+## 安装
+
+仓库中可直接安装的 Skill 位于：
+
+```text
+.agents/skills/processing-bond-seal-pages/
+```
+
+把这个完整目录复制到本机 Codex Skills 目录，并保留其中的 `SKILL.md`、`agents/`、`references/` 和 `scripts/`。安装后重新打开任务，即可通过 `$processing-bond-seal-pages` 显式调用；提到盖章页、签字页、回章、回签、日期确认或回拼时也会自动触发。
 
 ## 使用方式
 
