@@ -160,6 +160,21 @@ def _word_files(source):
     )
 
 
+def _remove_empty_source_directories(directories):
+    ordered_directories = sorted(
+        directories,
+        key=lambda path: len(path.parts),
+        reverse=True,
+    )
+    for directory in ordered_directories:
+        if (
+            directory.is_dir()
+            and not directory.is_symlink()
+            and not any(directory.iterdir())
+        ):
+            directory.rmdir()
+
+
 def _manifest_path(project_root):
     # 项目状态必须在过程数据清理后仍然存在，才能记录已清理状态并安全续接。
     return project_root / PROJECT_MANIFEST_NAME
@@ -418,6 +433,7 @@ def initialize_signing_project(
         raise ValueError(f"不支持的签署文件组：{'、'.join(unknown_groups)}")
 
     plans = []
+    source_directories_to_prune = set()
     resolved_sources = []
     for group_key, source_value in group_sources.items():
         source = Path(source_value).resolve()
@@ -438,6 +454,12 @@ def initialize_signing_project(
         for source_file in word_files:
             relative = source_file.relative_to(source)
             plans.append((group_key, source_file, target_root / relative))
+            source_directory = source_file.parent
+            while True:
+                source_directories_to_prune.add(source_directory)
+                if source_directory == source:
+                    break
+                source_directory = source_directory.parent
 
     for index, first in enumerate(resolved_sources):
         for second in resolved_sources[index + 1 :]:
@@ -493,13 +515,14 @@ def initialize_signing_project(
                 }
             )
             _write_manifest(manifest_path, manifest)
+        _remove_empty_source_directories(source_directories_to_prune)
     except Exception as error:
         manifest["status"] = "initialization_failed"
         manifest["updated_at"] = _utc_now()
         manifest["error"] = str(error) or error.__class__.__name__
         _write_manifest(manifest_path, manifest)
         raise ValueError(
-            f"移动原始 Word 失败；已移动 {moved} 个文件，请检查项目状态：{error}"
+            f"移动原始 Word 或清理原空目录失败；已移动 {moved} 个文件，请检查项目状态：{error}"
         ) from error
 
     for group in groups.values():

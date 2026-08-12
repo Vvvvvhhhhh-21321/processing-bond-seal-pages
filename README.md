@@ -5,7 +5,7 @@
 
 这是一个面向债券项目底稿的 Codex Skill。用户只需说明原始 Word、签署回页或现有项目的位置，即可用自然语言完成文件分组、签署页准备、乱序回页匹配、Times New Roman 日期补齐、视觉校准、确认回拼和项目清理。
 
-当前正式版本为 [`v1.1.0`](https://github.com/Vvvvvhhhhh-21321/processing-bond-seal-pages/releases/tag/v1.1.0)。这一版本将原有批次脚本升级为可续接的项目工作流，并加入分组成果、重复签署页复用、处理数据补建和视觉日期校准。
+当前正式版本为 [`v1.1.1`](https://github.com/Vvvvvhhhhh-21321/processing-bond-seal-pages/releases/tag/v1.1.1)。这一版本会在初始化移动 Word 后清理因此变空的原目录，同时保留含其他文件的目录和输入目录之外的上级目录。
 
 当前只处理“每份 Word 的最后一页是唯一签署页”的底稿文件，不处理一份文件包含多张签字页的发行文件，也不判断印章真伪或签字人身份。
 
