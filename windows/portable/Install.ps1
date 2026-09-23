@@ -28,11 +28,21 @@ foreach ($path in @($dllPath,$guiPath,$cliPath)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "安装文件缺失：$path" }
 }
 
-New-Item -Path $comKey -Force -Value 'BondSeal Explorer Command' | Out-Null
-$serverKey = New-Item -Path (Join-Path $comKey 'InprocServer32') -Force -Value $dllPath
-New-ItemProperty -Path $serverKey.PSPath -Name 'ThreadingModel' -Value 'Apartment' -PropertyType String -Force | Out-Null
-New-Item -Path $verbKey -Force -Value '生成签署页合集' | Out-Null
-New-ItemProperty -Path $verbKey -Name 'ExplorerCommandHandler' -Value $clsid -PropertyType String -Force | Out-Null
+$comRegistration = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey("Software\Classes\CLSID\$clsid")
+try { $comRegistration.SetValue('', 'BondSeal Explorer Command', [Microsoft.Win32.RegistryValueKind]::String) }
+finally { $comRegistration.Close() }
+$serverRegistration = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey("Software\Classes\CLSID\$clsid\InprocServer32")
+try {
+    $serverRegistration.SetValue('', $dllPath, [Microsoft.Win32.RegistryValueKind]::String)
+    $serverRegistration.SetValue('ThreadingModel', 'Apartment', [Microsoft.Win32.RegistryValueKind]::String)
+}
+finally { $serverRegistration.Close() }
+$verbRegistration = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\Classes\*\shell\BondSealCollect')
+try {
+    $verbRegistration.SetValue('', '生成签署页合集', [Microsoft.Win32.RegistryValueKind]::String)
+    $verbRegistration.SetValue('ExplorerCommandHandler', $clsid, [Microsoft.Win32.RegistryValueKind]::String)
+}
+finally { $verbRegistration.Close() }
 
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'Uninstall.ps1') -Destination (Join-Path $installRoot 'Uninstall.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'Uninstall.cmd') -Destination (Join-Path $installRoot 'Uninstall.cmd') -Force
