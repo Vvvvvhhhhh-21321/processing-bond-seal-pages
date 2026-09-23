@@ -5,7 +5,7 @@ $expectedRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Programs\Bo
 if (-not $installRoot.Equals($expectedRoot,[StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid installation root.' }
 $clsid = '{62C7EB66-A11D-4F91-934C-3DAA9A3EF821}'
 $comKey = "HKCU:\Software\Classes\CLSID\$clsid"
-$verbKey = 'HKCU:\Software\Classes\*\shell\BondSealCollect'
+$verbKeys = @('HKCU:\Software\Classes\SystemFileAssociations\.doc\shell\BondSealCollect','HKCU:\Software\Classes\SystemFileAssociations\.docx\shell\BondSealCollect','HKCU:\Software\Classes\*\shell\BondSealCollect')
 
 $serverKey = Join-Path $comKey 'InprocServer32'
 $serverPath = if (Test-Path -LiteralPath $serverKey) { (Get-Item -LiteralPath $serverKey).GetValue('') } else { $null }
@@ -16,7 +16,14 @@ if ($serverPath) {
         throw "右键扩展指向其他安装位置，已停止卸载：$fullServer"
     }
 }
-if (Test-Path -LiteralPath $verbKey) { Remove-Item -LiteralPath $verbKey -Recurse -Force }
+foreach ($verbKey in $verbKeys) {
+    if (Test-Path -LiteralPath $verbKey) {
+        $registered = Get-Item -LiteralPath $verbKey
+        if ($registered.GetValue('ExplorerCommandHandler') -eq $clsid) {
+            Remove-Item -LiteralPath $verbKey -Recurse -Force
+        }
+    }
+}
 if (Test-Path -LiteralPath $comKey) { Remove-Item -LiteralPath $comKey -Recurse -Force }
 $refreshType = @'
 using System;

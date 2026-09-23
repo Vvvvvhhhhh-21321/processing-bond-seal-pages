@@ -57,12 +57,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell installer failed.' }
           $root = Join-Path $env:LOCALAPPDATA 'Programs\BondSealPages'
           $clsid = '{62C7EB66-A11D-4F91-934C-3DAA9A3EF821}'
-          $verb = 'HKCU:\Software\Classes\*\shell\BondSealCollect'
+          $verbs = @('HKCU:\Software\Classes\SystemFileAssociations\.doc\shell\BondSealCollect','HKCU:\Software\Classes\SystemFileAssociations\.docx\shell\BondSealCollect')
           $server = "HKCU:\Software\Classes\CLSID\$clsid\InprocServer32"
-          if (-not (Test-Path -LiteralPath $verb)) { throw 'Explorer verb was not registered.' }
-          if ((Get-Item -LiteralPath $verb).GetValue('') -ne '生成签署页合集') { throw 'Explorer menu title encoding is invalid.' }
-          if ((Get-ItemPropertyValue -LiteralPath $verb -Name ExplorerCommandHandler) -ne $clsid) { throw 'Explorer command CLSID mismatch.' }
+          foreach ($verb in $verbs) {
+            if (-not (Test-Path -LiteralPath $verb)) { throw "Explorer verb was not registered: $verb" }
+            if ((Get-Item -LiteralPath $verb).GetValue('') -ne '生成签署页合集') { throw 'Explorer menu title encoding is invalid.' }
+            if ((Get-ItemPropertyValue -LiteralPath $verb -Name ExplorerCommandHandler) -ne $clsid) { throw 'Explorer command CLSID mismatch.' }
+            if ((Get-ItemPropertyValue -LiteralPath $verb -Name MultiSelectModel) -ne 'Player') { throw 'Multi-selection is not enabled.' }
+          }
           if (-not (Test-Path -LiteralPath ((Get-Item -LiteralPath $server).GetValue('')))) { throw 'COM DLL path is invalid.' }
+          & .\windows\tests\ExplorerCommandState.ps1
           & (Join-Path $root 'bondseal.cmd') --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI did not start.' }
           $previous = (Get-Content -LiteralPath (Join-Path $root 'current.txt') -Raw).Trim()
@@ -73,7 +77,7 @@ jobs:
           if (Test-Path -LiteralPath (Join-Path $root $previous)) { throw 'Upgrade left an unused versioned directory.' }
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'Uninstall.ps1') -NoPrompt
           if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell uninstaller failed.' }
-          if ((Test-Path -LiteralPath $verb) -or (Test-Path -LiteralPath $server)) { throw 'Uninstall left context-menu registration behind.' }
+          if ((@($verbs | Where-Object { Test-Path -LiteralPath $_ }).Count -gt 0) -or (Test-Path -LiteralPath $server)) { throw 'Uninstall left context-menu registration behind.' }
       - name: Upload unsigned portable app
         uses: actions/upload-artifact@v4
         with:

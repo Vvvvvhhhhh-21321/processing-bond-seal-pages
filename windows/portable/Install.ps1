@@ -12,14 +12,12 @@ $versionName = 'app-' + [guid]::NewGuid().ToString('N')
 $versionRoot = Join-Path $installRoot $versionName
 $clsid = '{62C7EB66-A11D-4F91-934C-3DAA9A3EF821}'
 $comKey = "HKCU:\Software\Classes\CLSID\$clsid"
-$verbKey = 'HKCU:\Software\Classes\*\shell\BondSealCollect'
+$legacyVerbKey = 'HKCU:\Software\Classes\*\shell\BondSealCollect'
 
 New-Item -ItemType Directory -Force -Path $installRoot,$versionRoot | Out-Null
 foreach ($name in @('GUI','CLI','windows')) {
     Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination (Join-Path $versionRoot $name) -Recurse -Force
 }
-Copy-Item -LiteralPath (Join-Path $sourceRoot 'Uninstall.ps1') -Destination (Join-Path $versionRoot 'Uninstall.ps1')
-Copy-Item -LiteralPath (Join-Path $sourceRoot 'Uninstall.cmd') -Destination (Join-Path $installRoot 'Uninstall.cmd')
 
 $dllPath = Join-Path $versionRoot 'windows\BondSealContextMenu.dll'
 $guiPath = Join-Path $versionRoot 'GUI\BondSealGUI.exe'
@@ -37,12 +35,22 @@ try {
     $serverRegistration.SetValue('ThreadingModel', 'Apartment', [Microsoft.Win32.RegistryValueKind]::String)
 }
 finally { $serverRegistration.Close() }
-$verbRegistration = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Software\Classes\*\shell\BondSealCollect')
-try {
-    $verbRegistration.SetValue('', '生成签署页合集', [Microsoft.Win32.RegistryValueKind]::String)
-    $verbRegistration.SetValue('ExplorerCommandHandler', $clsid, [Microsoft.Win32.RegistryValueKind]::String)
+foreach ($extension in @('.doc','.docx')) {
+    $relative = "Software\Classes\SystemFileAssociations\$extension\shell\BondSealCollect"
+    $verbRegistration = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($relative)
+    try {
+        $verbRegistration.SetValue('', '生成签署页合集', [Microsoft.Win32.RegistryValueKind]::String)
+        $verbRegistration.SetValue('ExplorerCommandHandler', $clsid, [Microsoft.Win32.RegistryValueKind]::String)
+        $verbRegistration.SetValue('MultiSelectModel', 'Player', [Microsoft.Win32.RegistryValueKind]::String)
+    }
+    finally { $verbRegistration.Close() }
 }
-finally { $verbRegistration.Close() }
+if (Test-Path -LiteralPath $legacyVerbKey) {
+    $legacy = Get-Item -LiteralPath $legacyVerbKey
+    if ($legacy.GetValue('ExplorerCommandHandler') -eq $clsid) {
+        Remove-Item -LiteralPath $legacyVerbKey -Recurse -Force
+    }
+}
 
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'Uninstall.ps1') -Destination (Join-Path $installRoot 'Uninstall.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'Uninstall.cmd') -Destination (Join-Path $installRoot 'Uninstall.cmd') -Force

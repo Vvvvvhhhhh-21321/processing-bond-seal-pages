@@ -238,10 +238,11 @@ public:
         *name = GUID_NULL;
         return S_OK;
     }
-    IFACEMETHODIMP GetState(IShellItemArray* items, BOOL, EXPCMDSTATE* state) override {
+    IFACEMETHODIMP GetState(IShellItemArray*, BOOL, EXPCMDSTATE* state) override {
         if (!state) return E_POINTER;
-        std::vector<std::filesystem::path> paths;
-        *state = read_selection(items, paths) ? ECS_ENABLED : ECS_HIDDEN;
+        // File-type registration limits discovery to Word documents. Explorer can
+        // query state without a complete selection; validate all paths in Invoke.
+        *state = ECS_ENABLED;
         return S_OK;
     }
     IFACEMETHODIMP Invoke(IShellItemArray* items, IBindCtx*) override {
