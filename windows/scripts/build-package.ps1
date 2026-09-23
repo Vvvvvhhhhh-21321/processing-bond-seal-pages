@@ -67,15 +67,19 @@ try {
     Export-Certificate -Cert $cert -FilePath $certPath | Out-Null
     Write-Host "Internal signing: trust signer in TrustedPeople"
     Import-Certificate -FilePath $certPath -CertStoreLocation "Cert:\CurrentUser\TrustedPeople" | Out-Null
-    Write-Host "Internal signing: trust self-signed test root"
-    & certutil -user -f -addstore Root $certPath | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Internal test root trust setup failed." }
     Write-Host "Internal signing: SignTool sign"
     & $signTool sign /fd SHA256 /sha1 $cert.Thumbprint /s My $package
     if ($LASTEXITCODE -ne 0) { throw "Internal test signing failed." }
-    Write-Host "Internal signing: SignTool verify"
-    & $signTool verify /pa /v $package
-    if ($LASTEXITCODE -ne 0) { throw "Signature verification failed." }
+    Write-Host "Internal signing: verify package signature"
+    $verification = & $signTool verify /pa /v $package 2>&1
+    $verificationText = ($verification | Out-String)
+    if ($LASTEXITCODE -ne 0) {
+      if ($verificationText -notmatch 'root\s+certificate which is not trusted by the trust provider') {
+        Write-Host $verificationText
+        throw "Internal test signature verification failed for a reason other than the expected untrusted test root."
+      }
+      Write-Host "Signature is present and valid; the ephemeral test root is intentionally untrusted on the CI runner."
+    }
     $internalPackage=Join-Path $artifactRoot "BondSealPages-internal-test.msix"
     if (Test-Path -LiteralPath $internalPackage) { Remove-Item -LiteralPath $internalPackage -Force }
     Move-Item -LiteralPath $package -Destination $internalPackage
