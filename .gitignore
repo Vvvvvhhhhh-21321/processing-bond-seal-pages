@@ -21,3 +21,16 @@ CONTEXT.md
 # OS metadata
 .DS_Store
 Thumbs.db
+
+.venv/
+.pytest_cache/
+.ruff_cache/
+windows/**/bin/
+windows/**/obj/
+desktop/**/build/
+desktop/**/dist/
+artifacts/
+*.msix
+*.msixbundle
+*.pfx
+*.cer

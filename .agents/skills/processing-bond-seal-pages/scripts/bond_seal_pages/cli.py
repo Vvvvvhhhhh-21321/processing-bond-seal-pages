@@ -50,6 +50,13 @@ def _parser():
         help="keep 保留全部 Word；deduplicate 按文件 SHA-256 排除重复 Word",
     )
 
+    collect = subparsers.add_parser(
+        "collect",
+        help="按明确的 Word 文件列表快速生成签署页合集",
+    )
+    collect.add_argument("--request-file", type=Path, required=True)
+    collect.add_argument("--json", action="store_true", help="以机器可读 JSON 输出")
+
     date_review = subparsers.add_parser(
         "date-review",
         help="匹配并生成一份已落日期的待确认 PDF，不回拼底稿",
@@ -92,6 +99,18 @@ def _parser():
         help="内部：读取签署页处理项目状态",
     )
     project_status.add_argument("project_root", type=Path)
+
+    project_import = subparsers.add_parser(
+        "project-import-batch",
+        help="内部：校验并导入右键生成的签署页批次",
+    )
+    project_import.add_argument("batch_dir", type=Path)
+    project_import.add_argument("project_root", type=Path)
+    project_import.add_argument(
+        "--group",
+        choices=("issuer", "project_team"),
+        required=True,
+    )
 
     project_prepare = subparsers.add_parser(
         "project-prepare",
@@ -190,7 +209,16 @@ def _emit(payload, output):
     output.write("\n")
 
 
-def _preflight(args, preflight_runner):
+def _preflight(args, preflight_runner, collect_preflight_runner=None):
+    if args.command == "collect":
+        runner = collect_preflight_runner or preflight_runner
+        arguments = {
+            "selected_python": getattr(args, "selected_python", None),
+            "require_converter": True,
+        }
+        if collect_preflight_runner is None:
+            arguments["lightweight"] = True
+        return runner(**arguments)
     require_converter = args.command in {"prepare", "project-prepare", "project-rebuild"} or (
         args.command == "preflight" and args.stage == "prepare"
     )
@@ -350,6 +378,9 @@ def main(
     complete_runner=None,
     date_review_runner=None,
     finalize_runner=None,
+    collect_preflight_runner=None,
+    collect_runner=None,
+    import_batch_runner=None,
     output=None,
 ):
     output = _utf8_stdout() if output is None else output
@@ -358,6 +389,7 @@ def main(
         no_preflight_commands = {
             "project-init",
             "project-status",
+            "project-import-batch",
             "project-visual-skip",
             "project-clean",
         }
@@ -365,7 +397,11 @@ def main(
             preflight_result = None
             preflight_payload = None
         else:
-            preflight_result = _preflight(args, preflight_runner)
+            preflight_result = _preflight(
+                args,
+                preflight_runner,
+                collect_preflight_runner=collect_preflight_runner,
+            )
             preflight_payload = _preflight_payload(preflight_result)
         if args.command == "preflight":
             payload = {
@@ -406,6 +442,7 @@ def main(
                 create_group_date_review,
                 finalize_signing_group,
                 initialize_signing_project,
+                import_quick_batch,
                 inspect_signing_project,
                 prepare_signing_group,
                 prepare_visual_review_package,
@@ -444,6 +481,23 @@ def main(
                     "project_root": str(result.project_root),
                     "groups": result.groups,
                     "requires_confirmation": result.requires_confirmation,
+                }
+            elif args.command == "project-import-batch":
+                runner = import_batch_runner or import_quick_batch
+                result = runner(
+                    args.batch_dir,
+                    args.project_root,
+                    args.group,
+                )
+                payload = {
+                    "command": args.command,
+                    "status": "prepared",
+                    "group": result.group_key,
+                    "project_root": str(result.project_root),
+                    "collection": str(result.collection_path),
+                    "batch_manifest": str(result.batch_manifest_path),
+                    "succeeded": result.succeeded,
+                    "failed": result.failed,
                 }
             elif args.command == "project-prepare":
                 result = prepare_signing_group(
@@ -569,6 +623,23 @@ def main(
             _emit(payload, output)
             return 0
 
+        if args.command == "collect":
+            if collect_runner is None:
+                from .selected_batch import collect_selected_batch
+
+                collect_runner = collect_selected_batch
+            try:
+                request = json.loads(args.request_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise ValueError(f"无法读取快速合集请求文件：{error}") from error
+            if not isinstance(request, dict):
+                raise ValueError("快速合集请求必须是 JSON 对象")
+            result = collect_runner(request)
+            if not isinstance(result, dict):
+                raise TypeError("快速合集处理器必须返回 JSON 对象")
+            _emit({"command": "collect", **result}, output)
+            return 0
+
         if args.command == "prepare":
             if prepare_runner is None:
                 from .processing_batch import prepare_processing_batch
@@ -624,14 +695,17 @@ def main(
         _emit(_complete_payload(result), output)
         return 0
     except Exception as error:
-        _emit(
-            {
-                "command": args.command,
-                "status": "failed",
-                "error": str(error) or error.__class__.__name__,
-            },
-            output,
-        )
+        failure_payload = {
+            "command": args.command,
+            "status": "failed",
+            "error": str(error) or error.__class__.__name__,
+        }
+        if args.command == "collect":
+            for key in ("failures", "selected_count", "page_count"):
+                value = getattr(error, key, None)
+                if value is not None:
+                    failure_payload[key] = value
+        _emit(failure_payload, output)
         return 1
 
 

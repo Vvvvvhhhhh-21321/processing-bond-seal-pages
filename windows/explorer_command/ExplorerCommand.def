@@ -1,0 +1,4 @@
+LIBRARY "BondSealContextMenu"
+EXPORTS
+    DllCanUnloadNow PRIVATE
+    DllGetClassObject PRIVATE

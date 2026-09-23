@@ -714,6 +714,14 @@ def _prepare_reuse_batch(
     }
 
 
+
+def import_quick_batch(batch_dir, project_root, group_key):
+    """Thin entry point for the isolated quick-batch importer."""
+    from .batch_import import import_quick_batch as import_batch
+
+    return import_batch(batch_dir, project_root, group_key)
+
+
 def inspect_signing_project(project_root):
     project_root = Path(project_root).resolve()
     manifest = load_signing_project(project_root)

@@ -1,0 +1,58 @@
+name: Windows desktop build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-msix:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          architecture: x64
+      - uses: astral-sh/setup-uv@v5
+      - uses: microsoft/setup-msbuild@v2
+      - name: Verify locked dependencies
+        run: uv lock --check
+      - name: Run Python regression tests
+        run: uv run --locked --group test python -m pytest -q tests
+      - name: Build and sign an internal test MSIX
+        shell: pwsh
+        run: .\windows\scripts\build-package.ps1 -Version 0.1.0.0 -Publisher "CN=BondSealPages-CI-Test" -SignForInternalTest
+      - name: Smoke-test packaged CLI host
+        shell: pwsh
+        run: |
+          $cli = Resolve-Path .\artifacts\dist\cli\BondSealCLI\BondSealCLI.exe
+          & $cli --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Frozen CLI help did not start." }
+          $request = Join-Path $env:RUNNER_TEMP "invalid-quick-batch.json"
+          [IO.File]::WriteAllText($request,'{"version":1,"files":[]}',[Text.UTF8Encoding]::new($false))
+          $output = & $cli collect --request-file $request --json 2>&1
+          if ($LASTEXITCODE -notin @(1,2)) { throw "Frozen CLI returned unexpected code: $LASTEXITCODE" }
+          $jsonLine = $output | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1
+          if (-not $jsonLine) { throw "Frozen CLI did not emit a JSON response." }
+          $payload = $jsonLine | ConvertFrom-Json
+          if ($payload.command -ne "collect") { throw "Frozen CLI returned the wrong command payload." }
+      - name: Summarize internal test signature
+        shell: pwsh
+        run: |
+          $fingerprint = Get-Content .\artifacts\BondSealPages-InternalTest-Fingerprint.txt -Raw
+          "Internal test certificate fingerprint: $($fingerprint.Trim())" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "Internal verification only. Never publish this test signature." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+      - name: Upload internal test package and public certificate
+        uses: actions/upload-artifact@v4
+        with:
+          name: bond-seal-pages-internal-test-msix
+          path: |
+            artifacts/BondSealPages-internal-test.msix
+            artifacts/BondSealPages-InternalTest.cer
+            artifacts/BondSealPages-InternalTest-Fingerprint.txt
+          if-no-files-found: error
+          retention-days: 14

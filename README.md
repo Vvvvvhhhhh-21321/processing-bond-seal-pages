@@ -26,6 +26,8 @@ flowchart LR
 - 分开处理发行人说明性文件和项目组分析文件，也支持只有其中一组。
 - 初始化项目框架并把原始 `.doc`/`.docx` 移入对应“原始Word”目录。
 - 分别生成发行人待盖章页合集和项目组签字页合集。
+- Windows 11 可从资源管理器多选同一文件夹中的 `.doc`/`.docx` 快速生成签署页合集；同 SHA-256 重复文件共享一页，源文件保留在原处，处理失败不发布完整合集。
+- Agent 可调用同一核心生成批次，并在用户指定签署组后把批次校验、复制到现有 Skill 项目继续处理。
 - 可选择每份单独签署，或让同组 SHA-256 完全相同的 Word 复用一张签署页。
 - 重复 Word 只减少实际签署页数量，每份 Word 仍生成独立最终 PDF。
 - 支持乱序、缺页、文字页和扫描签署回页，通过标题识别与保存映射完成回拼。
@@ -70,6 +72,32 @@ flowchart LR
 ```
 
 用户不需要输入底层命令。Skill 会说明当前阶段、将执行的文件移动、需要选择的重复策略、日期确认稿位置、重点页以及下一次确认。
+
+## 快速合集与 Agent 续接
+
+集成后的 Windows 11 客户端支持在资源管理器选择同一文件夹中的多份 Word，通过“生成签署页合集”启动处理。合集 PDF 与 `签署页合集_处理数据_请勿删除/` 生成在源文件旁；Word 原件不会移动或覆盖。Agent 与桌面入口共用 `collect_selected_batch` 核心。
+
+Agent 的请求必须明确列出绝对 Word 路径，不扫描整个文件夹。开发环境可以调用：
+
+```powershell
+python .agents/skills/processing-bond-seal-pages/scripts/run_bond_seal_pages.py collect --request-file .\selected-files.json --json
+```
+
+请求示例：
+
+```json
+{
+  "version": 1,
+  "files": [
+    "C:\\项目\\底稿\\发行人说明.docx",
+    "C:\\项目\\底稿\\法律意见.doc"
+  ]
+}
+```
+
+处理数据目录可由 Skill 通过 `project-import-batch` 导入新项目，或导入现有项目尚未准备的另一签署组。Agent 必须让用户明确指定发行人组或项目组；导入前会验证源文件、转换缓存和合集哈希，重复策略沿用快速批次中的 SHA-256 复用结果。
+
+Windows 资源管理器集成依赖本机 Microsoft Word。生产版 MSIX 需要受信任的签名证书；未签名或测试签名的构建仅用于内部验收，不应作为公开 Releases 发布。
 
 ## 项目结构
 
@@ -132,7 +160,7 @@ flowchart LR
 
 ## 开发验证
 
-自动化测试位于 Skill 的 `scripts/tests` 开发目录，覆盖项目初始化、分组、重复页复用、Times New Roman、日期确认、视觉坐标、续接、补建、回拼、清理及原有 OCR/PDF 能力。
+本次新增的自动化测试位于仓库根目录 `tests/test_import_cli.py`，覆盖快速批次验证、复制导入、两组续接、失败不改项目、轻量环境预检和 CLI JSON/退出码。现有项目全流程仍需在 Windows 与真实 Word 环境完成条件式验收。
 
 真实 Word 转换和完整项目验收需要在相应平台设置本地样本路径后运行条件式冒烟测试。
 

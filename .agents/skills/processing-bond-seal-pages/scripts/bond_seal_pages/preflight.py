@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import importlib
 import json
 import os
 from pathlib import Path
@@ -140,6 +141,18 @@ def _default_python_probe(command, runner):
         tuple(int(part) for part in data["version"]),
         str(data["architecture"]),
     )
+
+
+def _current_package_probe(modules):
+    """Import bundled dependencies in the running frozen application."""
+    result = {}
+    for module in modules:
+        try:
+            importlib.import_module(module)
+            result[module] = True
+        except Exception:
+            result[module] = False
+    return result
 
 
 def _default_package_probe(candidate, runner, modules):
@@ -357,6 +370,7 @@ def run_preflight(
     model_cache_ready=None,
     windows_word_locator=None,
     mac_libreoffice_locator=None,
+    lightweight=False,
 ):
     platform_name = sys.platform if platform_name is _UNSET else platform_name
     env = dict(os.environ if env is None else env)
@@ -366,13 +380,29 @@ def run_preflight(
     python_probe = python_probe or (
         lambda command: _default_python_probe(command, runner)
     )
-    command_specs = _candidate_commands(
-        platform_name,
-        env,
-        current_executable,
-        which,
-    )
-    candidates = _probe_candidates(command_specs, python_probe)
+    bundled_runtime = bool(lightweight and getattr(sys, "frozen", False))
+    if bundled_runtime:
+        architecture = "64bit" if sys.maxsize > 2**32 else "32bit"
+        candidates = (
+            PythonCandidate(
+                (str(current_executable),),
+                "bundled-runtime",
+                0,
+                runtime=PythonRuntimeInfo(
+                    str(current_executable),
+                    tuple(int(part) for part in sys.version_info[:3]),
+                    architecture,
+                ),
+            ),
+        )
+    else:
+        command_specs = _candidate_commands(
+            platform_name,
+            env,
+            current_executable,
+            which,
+        )
+        candidates = _probe_candidates(command_specs, python_probe)
     selected, ambiguous = _select_candidate(candidates, selected_python)
     checks = _selection_checks(candidates, selected, ambiguous)
     execution_check = _execution_check(selected, current_executable)
@@ -396,23 +426,30 @@ def run_preflight(
             if require_converter and platform_name == "win32"
             else ()
         )
-        modules = (*_BASE_PACKAGES, *windows_packages)
-        package_probe = package_probe or (
-            lambda candidate: _default_package_probe(candidate, runner, modules)
+        modules = (
+            ("pypdf", *windows_packages)
+            if lightweight
+            else (*_BASE_PACKAGES, *windows_packages)
         )
-        try:
-            packages = package_probe(selected)
-        except Exception as error:
-            packages = {module: False for module in modules}
-            checks.append(
-                PreflightCheck(
-                    "dependency-probe",
-                    "Python 依赖检查",
-                    False,
-                    str(error) or error.__class__.__name__,
-                    "无法确认依赖状态，业务处理不会启动",
-                )
+        if bundled_runtime:
+            packages = _current_package_probe(modules)
+        else:
+            package_probe = package_probe or (
+                lambda candidate: _default_package_probe(candidate, runner, modules)
             )
+            try:
+                packages = package_probe(selected)
+            except Exception as error:
+                packages = {module: False for module in modules}
+                checks.append(
+                    PreflightCheck(
+                        "dependency-probe",
+                        "Python 依赖检查",
+                        False,
+                        str(error) or error.__class__.__name__,
+                        "无法确认依赖状态，业务处理不会启动",
+                    )
+                )
         for module in modules:
             installed = bool(packages.get(module))
             checks.append(
@@ -424,17 +461,18 @@ def run_preflight(
                     None if installed else f"将只安装到 {selected.runtime.executable}",
                 )
             )
-        model_checker = model_cache_ready or ocr_model_cache_ready
-        model_ready = bool(model_checker())
-        checks.append(
-            PreflightCheck(
-                "ocr-model",
-                "PP-OCRv6 small 模型",
-                model_ready,
-                "已准备，可离线使用" if model_ready else "尚未准备",
-                None if model_ready else "首次模型准备需要联网下载；完成后可离线复用",
+        if not lightweight:
+            model_checker = model_cache_ready or ocr_model_cache_ready
+            model_ready = bool(model_checker())
+            checks.append(
+                PreflightCheck(
+                    "ocr-model",
+                    "PP-OCRv6 small 模型",
+                    model_ready,
+                    "已准备，可离线使用" if model_ready else "尚未准备",
+                    None if model_ready else "首次模型准备需要联网下载；完成后可离线复用",
+                )
             )
-        )
 
     if require_converter and platform_name == "win32":
         locator = windows_word_locator or discover_windows_word
