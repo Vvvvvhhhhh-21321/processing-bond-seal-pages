@@ -14,7 +14,7 @@ Agent 或脚本可调用安装目录的 %LOCALAPPDATA%\Programs\BondSealPages\bo
 
     & "$env:LOCALAPPDATA\Programs\BondSealPages\bondseal.cmd" collect --request-file C:\path\request.json --json
 
-请求 JSON v1 使用 version: 1、绝对路径 files 列表及可选的 output_directory。project-import-batch 使用同一个 CLI 导入既有 Skill 项目。双击安装目录下当前版本的 Uninstall.cmd 可移除右键菜单和应用文件。
+请求 JSON v1 使用 version: 1、绝对路径 files 列表及可选的 output_directory。project-import-batch 使用同一个 CLI 导入既有 Skill 项目。双击安装目录根部的 Uninstall.cmd 可移除右键菜单和应用文件。
 
 ## 构建
 

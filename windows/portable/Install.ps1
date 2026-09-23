@@ -19,7 +19,7 @@ foreach ($name in @('GUI','CLI','windows')) {
     Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination (Join-Path $versionRoot $name) -Recurse -Force
 }
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'Uninstall.ps1') -Destination (Join-Path $versionRoot 'Uninstall.ps1')
-Copy-Item -LiteralPath (Join-Path $sourceRoot 'Uninstall.cmd') -Destination (Join-Path $versionRoot 'Uninstall.cmd')
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'Uninstall.cmd') -Destination (Join-Path $installRoot 'Uninstall.cmd')
 
 $dllPath = Join-Path $versionRoot 'windows\BondSealContextMenu.dll'
 $guiPath = Join-Path $versionRoot 'GUI\BondSealGUI.exe'
@@ -34,10 +34,12 @@ New-ItemProperty -Path $serverKey.PSPath -Name 'ThreadingModel' -Value 'Apartmen
 New-Item -Path $verbKey -Force -Value '生成签署页合集' | Out-Null
 New-ItemProperty -Path $verbKey -Name 'ExplorerCommandHandler' -Value $clsid -PropertyType String -Force | Out-Null
 
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'Uninstall.ps1') -Destination (Join-Path $installRoot 'Uninstall.ps1') -Force
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'Uninstall.cmd') -Destination (Join-Path $installRoot 'Uninstall.cmd') -Force
 $utf8 = [Text.UTF8Encoding]::new($false)
 [IO.File]::WriteAllText((Join-Path $installRoot 'current.txt'),$versionName,$utf8)
 $launcher = '@echo off' + [Environment]::NewLine + '"%~dp0' + $versionName + '\CLI\BondSealCLI.exe" %*' + [Environment]::NewLine
 [IO.File]::WriteAllText((Join-Path $installRoot 'bondseal.cmd'),$launcher,$utf8)
 Write-Host '安装完成。选中同一文件夹中的 Word，右键 → 显示更多选项 → 生成签署页合集。'
 Write-Host "Agent/命令行入口：$(Join-Path $installRoot 'bondseal.cmd')"
-Write-Host "卸载入口：$(Join-Path $versionRoot 'Uninstall.cmd')"
+Write-Host "卸载入口：$(Join-Path $installRoot 'Uninstall.cmd')"

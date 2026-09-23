@@ -36,11 +36,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Frozen CLI help did not start." }
           $request = Join-Path $env:RUNNER_TEMP 'invalid-quick-batch.json'
           [IO.File]::WriteAllText($request,'{"version":1,"files":[]}',[Text.UTF8Encoding]::new($false))
-          $output = & $cli collect --request-file $request --json 2>&1
+          $output = & $cli collect --request-file $request --json
           if ($LASTEXITCODE -notin @(1,2)) { throw "Frozen CLI returned unexpected code: $LASTEXITCODE" }
-          $jsonLine = $output | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1
-          if (-not $jsonLine) { throw "Frozen CLI did not emit a JSON response." }
-          $payload = $jsonLine | ConvertFrom-Json
+          $payload = ($output -join [Environment]::NewLine) | ConvertFrom-Json
           if ($payload.command -ne 'collect') { throw "Frozen CLI returned the wrong command payload." }
           $zip = Resolve-Path .\artifacts\BondSealPages-Windows-x64.zip
           $entries = [IO.Compression.ZipFile]::OpenRead($zip)
@@ -64,7 +62,7 @@ jobs:
           if (-not (Test-Path -LiteralPath ((Get-Item -LiteralPath $server).GetValue('')))) { throw 'COM DLL path is invalid.' }
           & (Join-Path $root 'bondseal.cmd') --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI did not start.' }
-          & (Join-Path $stage 'Uninstall.ps1') -NoPrompt
+          & (Join-Path $root 'Uninstall.ps1') -NoPrompt
           if ((Test-Path -LiteralPath $verb) -or (Test-Path -LiteralPath $server)) { throw 'Uninstall left context-menu registration behind.' }
       - name: Upload unsigned portable app
         uses: actions/upload-artifact@v4

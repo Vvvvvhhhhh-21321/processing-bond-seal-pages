@@ -1,4 +1,5 @@
 @echo off
+cd /d "%TEMP%"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Uninstall.ps1"
 if errorlevel 1 (
   echo 卸载失败。请检查上面的提示。
