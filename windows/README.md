@@ -23,7 +23,7 @@ The build creates GUI and CLI PyInstaller onedir bundles and one `BondSealWordWo
 
 ## Signing and distribution
 
-The checked-in publisher `CN=BondSealPages-Development` is a placeholder. CI emits a **test-signed internal package** and the matching public `.cer` plus fingerprint; the private key is generated on the runner and is never uploaded. Import that certificate into the target device trust store before installing. Never upload a test-signed package as a public release. Public distribution needs a permanent package publisher identity and a publicly trusted signing certificate, signing service, or Store distribution. No signing key or certificate belongs in this repository.
+The checked-in publisher `CN=BondSealPages-Development` is a placeholder. CI emits a **test-signed internal package** and the matching public `.cer` plus fingerprint; the private key is generated on the runner and is never uploaded. For an internal test, verify the `.cer` fingerprint, then import it into the target user's **Trusted People** and **Trusted Root Certification Authorities** stores before installing the MSIX. Remove the test certificate from both stores after testing. Never upload a test-signed package as a public release. Public distribution needs a permanent package publisher identity and a publicly trusted signing certificate, signing service, or Store distribution. No signing key or certificate belongs in this repository.
 
 ## Validation boundary
 

@@ -66,6 +66,7 @@ try {
     $cert=New-SelfSignedCertificate -Type Custom -Subject $Publisher -CertStoreLocation "Cert:\CurrentUser\My" -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -KeyUsage DigitalSignature -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3") -NotAfter (Get-Date).AddYears(2)
     Export-Certificate -Cert $cert -FilePath $certPath | Out-Null
     Import-Certificate -FilePath $certPath -CertStoreLocation "Cert:\CurrentUser\TrustedPeople" | Out-Null
+    Import-Certificate -FilePath $certPath -CertStoreLocation "Cert:\CurrentUser\Root" | Out-Null
     & $signTool sign /fd SHA256 /sha1 $cert.Thumbprint /s My $package
     if ($LASTEXITCODE -ne 0) { throw "Internal test signing failed." }
     & $signTool verify /pa /v $package
