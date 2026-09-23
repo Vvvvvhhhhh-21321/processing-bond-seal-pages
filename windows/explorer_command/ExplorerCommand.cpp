@@ -332,8 +332,8 @@ private:
 
 } // namespace
 
-extern "C" HRESULT __declspec(dllexport) __stdcall DllGetClassObject(
-    REFCLSID classId, REFIID interfaceId, void** object) {
+STDAPI DllGetClassObject(
+    REFCLSID classId, REFIID interfaceId, LPVOID* object) {
     if (!IsEqualCLSID(classId, CLSID_BondSealExplorerCommand)) return CLASS_E_CLASSNOTAVAILABLE;
     auto* factory = new (std::nothrow) ClassFactory();
     if (!factory) return E_OUTOFMEMORY;
@@ -342,7 +342,7 @@ extern "C" HRESULT __declspec(dllexport) __stdcall DllGetClassObject(
     return result;
 }
 
-extern "C" HRESULT __declspec(dllexport) __stdcall DllCanUnloadNow() {
+STDAPI DllCanUnloadNow(void) {
     return (InterlockedCompareExchange(&g_liveObjects, 0, 0) == 0 &&
             InterlockedCompareExchange(&g_serverLocks, 0, 0) == 0) ? S_OK : S_FALSE;
 }
