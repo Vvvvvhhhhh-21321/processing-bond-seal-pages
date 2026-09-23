@@ -174,15 +174,14 @@ HRESULT shell_open_gui(const std::filesystem::path& executable, const std::wstri
 HRESULT launch_gui(const std::filesystem::path& requestPath) {
     const std::wstring parameters = L"--request-file " + quote_argument(requestPath.wstring());
 
-    // The DLL lives under the installed MSIX package root. Prefer its adjacent
-    // packaged GUI executable so a user-disabled app alias cannot break the menu.
+    // The DLL lives under the installed application root/windows directory.
     std::wstring modulePath(32768, L'\0');
     const DWORD length = g_module ? GetModuleFileNameW(g_module, modulePath.data(),
         static_cast<DWORD>(modulePath.size())) : 0;
     if (length > 0 && length < modulePath.size()) {
         modulePath.resize(length);
-        const auto packageRoot = std::filesystem::path(modulePath).parent_path().parent_path();
-        const auto gui = packageRoot / L"GUI" / L"BondSealGUI.exe";
+        const auto applicationRoot = std::filesystem::path(modulePath).parent_path().parent_path();
+        const auto gui = applicationRoot / L"GUI" / L"BondSealGUI.exe";
         std::error_code error;
         if (std::filesystem::is_regular_file(gui, error)) {
             const HRESULT result = shell_open_gui(gui, parameters);
@@ -190,17 +189,7 @@ HRESULT launch_gui(const std::filesystem::path& requestPath) {
         }
     }
 
-    // App execution aliases remain a fallback for package layouts or activation
-    // policies where launching the package-relative executable is unavailable.
-    PWSTR localAppData = nullptr;
-    HRESULT result = SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &localAppData);
-    if (FAILED(result)) return result;
-    std::filesystem::path alias(localAppData);
-    CoTaskMemFree(localAppData);
-    alias /= L"Microsoft";
-    alias /= L"WindowsApps";
-    alias /= L"bondseal-gui.exe";
-    return shell_open_gui(alias, parameters);
+    return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
 }
 HRESULT copy_title(PCWSTR value, LPWSTR* output) {
     if (!output) return E_POINTER;
@@ -272,7 +261,7 @@ public:
         if (FAILED(result)) {
             DeleteFileW(requestPath.c_str());
             MessageBoxW(nullptr,
-                L"未能启动签署页合集应用。请先安装应用包，或从开始菜单启动后重试。",
+                L"未能启动签署页合集应用。请重新运行安装程序后重试。",
                 L"签署页合集", MB_OK | MB_ICONERROR);
         }
         return result;

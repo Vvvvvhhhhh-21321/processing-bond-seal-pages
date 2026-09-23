@@ -97,7 +97,7 @@ python .agents/skills/processing-bond-seal-pages/scripts/run_bond_seal_pages.py 
 
 处理数据目录可由 Skill 通过 `project-import-batch` 导入新项目，或导入现有项目尚未准备的另一签署组。Agent 必须让用户明确指定发行人组或项目组；导入前会验证源文件、转换缓存和合集哈希，重复策略沿用快速批次中的 SHA-256 复用结果。
 
-Windows 资源管理器集成依赖本机 Microsoft Word。生产版 MSIX 需要受信任的签名证书；未签名或测试签名的构建仅用于内部验收，不应作为公开 Releases 发布。
+Windows 资源管理器集成依赖本机 Microsoft Word。免签名 Windows 版通过“显示更多选项 → 生成签署页合集”使用，下载便携 ZIP 后运行 Install.cmd 即可安装，详情见 windows/README.md。
 
 ## 项目结构
 

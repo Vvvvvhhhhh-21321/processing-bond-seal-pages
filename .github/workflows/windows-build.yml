@@ -9,9 +9,9 @@ permissions:
   contents: read
 
 jobs:
-  build-msix:
+  build-portable:
     runs-on: windows-2022
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,36 +24,52 @@ jobs:
         run: uv lock --check
       - name: Run Python regression tests
         run: uv run --locked --group test python -m pytest -q tests
-      - name: Build and sign an internal test MSIX
+      - name: Build unsigned portable package
         shell: pwsh
-        run: .\windows\scripts\build-package.ps1 -Version 0.1.0.0 -Publisher "CN=BondSealPages-CI-Test" -SignForInternalTest
-      - name: Smoke-test packaged CLI host
+        run: .\windows\scripts\build-portable.ps1
+      - name: Smoke-test frozen CLI and package layout
         shell: pwsh
         run: |
-          $cli = Resolve-Path .\artifacts\dist\cli\BondSealCLI\BondSealCLI.exe
+          $stage = Resolve-Path .\artifacts\portable-stage
+          $cli = Join-Path $stage 'CLI\BondSealCLI.exe'
           & $cli --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Frozen CLI help did not start." }
-          $request = Join-Path $env:RUNNER_TEMP "invalid-quick-batch.json"
+          $request = Join-Path $env:RUNNER_TEMP 'invalid-quick-batch.json'
           [IO.File]::WriteAllText($request,'{"version":1,"files":[]}',[Text.UTF8Encoding]::new($false))
           $output = & $cli collect --request-file $request --json 2>&1
           if ($LASTEXITCODE -notin @(1,2)) { throw "Frozen CLI returned unexpected code: $LASTEXITCODE" }
           $jsonLine = $output | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1
           if (-not $jsonLine) { throw "Frozen CLI did not emit a JSON response." }
           $payload = $jsonLine | ConvertFrom-Json
-          if ($payload.command -ne "collect") { throw "Frozen CLI returned the wrong command payload." }
-      - name: Summarize internal test signature
+          if ($payload.command -ne 'collect') { throw "Frozen CLI returned the wrong command payload." }
+          $zip = Resolve-Path .\artifacts\BondSealPages-Windows-x64.zip
+          $entries = [IO.Compression.ZipFile]::OpenRead($zip)
+          try {
+            foreach ($name in @('Install.cmd','Install.ps1','Uninstall.cmd','Uninstall.ps1','GUI/BondSealGUI.exe','CLI/BondSealCLI.exe','windows/BondSealContextMenu.dll')) {
+              if (-not ($entries.Entries | Where-Object FullName -eq $name)) { throw "Missing ZIP entry: $name" }
+            }
+          }
+          finally { $entries.Dispose() }
+      - name: Verify per-user install and uninstall
         shell: pwsh
         run: |
-          $fingerprint = Get-Content .\artifacts\BondSealPages-InternalTest-Fingerprint.txt -Raw
-          "Internal test certificate fingerprint: $($fingerprint.Trim())" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          "Internal verification only. Never publish this test signature." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-      - name: Upload internal test package and public certificate
+          $stage = Resolve-Path .\artifacts\portable-stage
+          & (Join-Path $stage 'Install.ps1') -NoPrompt
+          $root = Join-Path $env:LOCALAPPDATA 'Programs\BondSealPages'
+          $clsid = '{62C7EB66-A11D-4F91-934C-3DAA9A3EF821}'
+          $verb = 'HKCU:\Software\Classes\*\shell\BondSealCollect'
+          $server = "HKCU:\Software\Classes\CLSID\$clsid\InprocServer32"
+          if (-not (Test-Path -LiteralPath $verb)) { throw 'Explorer verb was not registered.' }
+          if ((Get-ItemPropertyValue -LiteralPath $verb -Name ExplorerCommandHandler) -ne $clsid) { throw 'Explorer command CLSID mismatch.' }
+          if (-not (Test-Path -LiteralPath ((Get-Item -LiteralPath $server).GetValue('')))) { throw 'COM DLL path is invalid.' }
+          & (Join-Path $root 'bondseal.cmd') --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI did not start.' }
+          & (Join-Path $stage 'Uninstall.ps1') -NoPrompt
+          if ((Test-Path -LiteralPath $verb) -or (Test-Path -LiteralPath $server)) { throw 'Uninstall left context-menu registration behind.' }
+      - name: Upload unsigned portable app
         uses: actions/upload-artifact@v4
         with:
-          name: bond-seal-pages-internal-test-msix
-          path: |
-            artifacts/BondSealPages-internal-test.msix
-            artifacts/BondSealPages-InternalTest.cer
-            artifacts/BondSealPages-InternalTest-Fingerprint.txt
+          name: BondSealPages-Windows-x64
+          path: artifacts/BondSealPages-Windows-x64.zip
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
