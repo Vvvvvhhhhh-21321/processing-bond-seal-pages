@@ -50,6 +50,16 @@ $utf8 = [Text.UTF8Encoding]::new($false)
 [IO.File]::WriteAllText((Join-Path $installRoot 'current.txt'),$versionName,$utf8)
 $launcher = '@echo off' + [Environment]::NewLine + '"%~dp0' + $versionName + '\CLI\BondSealCLI.exe" %*' + [Environment]::NewLine
 [IO.File]::WriteAllText((Join-Path $installRoot 'bondseal.cmd'),$launcher,$utf8)
+$installedPrefix = $installRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+foreach ($directory in Get-ChildItem -LiteralPath $installRoot -Directory) {
+    if ($directory.Name -eq $versionName -or $directory.Name -notmatch '^app-[0-9a-f]{32}$') { continue }
+    $oldPath = [IO.Path]::GetFullPath($directory.FullName)
+    if (-not $oldPath.StartsWith($installedPrefix,[StringComparison]::OrdinalIgnoreCase)) {
+        throw "旧版本目录超出安装位置：$oldPath"
+    }
+    try { Remove-Item -LiteralPath $oldPath -Recurse -Force -ErrorAction Stop }
+    catch { Write-Warning "旧版本仍被系统占用；重启后再次安装可清理：$oldPath" }
+}
 Write-Host '安装完成。选中同一文件夹中的 Word，右键 → 显示更多选项 → 生成签署页合集。'
 Write-Host "Agent/命令行入口：$(Join-Path $installRoot 'bondseal.cmd')"
 Write-Host "卸载入口：$(Join-Path $installRoot 'Uninstall.cmd')"

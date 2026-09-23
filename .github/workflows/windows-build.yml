@@ -65,6 +65,12 @@ jobs:
           if (-not (Test-Path -LiteralPath ((Get-Item -LiteralPath $server).GetValue('')))) { throw 'COM DLL path is invalid.' }
           & (Join-Path $root 'bondseal.cmd') --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI did not start.' }
+          $previous = (Get-Content -LiteralPath (Join-Path $root 'current.txt') -Raw).Trim()
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $stage 'Install.ps1') -NoPrompt
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell upgrade failed.' }
+          $current = (Get-Content -LiteralPath (Join-Path $root 'current.txt') -Raw).Trim()
+          if ($previous -eq $current) { throw 'Upgrade did not switch versioned directory.' }
+          if (Test-Path -LiteralPath (Join-Path $root $previous)) { throw 'Upgrade left an unused versioned directory.' }
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'Uninstall.ps1') -NoPrompt
           if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell uninstaller failed.' }
           if ((Test-Path -LiteralPath $verb) -or (Test-Path -LiteralPath $server)) { throw 'Uninstall left context-menu registration behind.' }
