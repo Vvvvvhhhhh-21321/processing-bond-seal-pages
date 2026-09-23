@@ -18,6 +18,16 @@ if ($serverPath) {
 }
 if (Test-Path -LiteralPath $verbKey) { Remove-Item -LiteralPath $verbKey -Recurse -Force }
 if (Test-Path -LiteralPath $comKey) { Remove-Item -LiteralPath $comKey -Recurse -Force }
+$refreshType = @'
+using System;
+using System.Runtime.InteropServices;
+public static class BondSealShellRefresh {
+    [DllImport("shell32.dll", ExactSpelling=true)]
+    public static extern void SHChangeNotify(uint eventId, uint flags, IntPtr item1, IntPtr item2);
+}
+'@
+Add-Type -TypeDefinition $refreshType
+[BondSealShellRefresh]::SHChangeNotify(0x08000000,0,[IntPtr]::Zero,[IntPtr]::Zero)
 if (Test-Path -LiteralPath $installRoot) {
     $marker = Join-Path $installRoot 'current.txt'
     if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) {

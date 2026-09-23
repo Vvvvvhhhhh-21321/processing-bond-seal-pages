@@ -60,6 +60,16 @@ foreach ($directory in Get-ChildItem -LiteralPath $installRoot -Directory) {
     try { Remove-Item -LiteralPath $oldPath -Recurse -Force -ErrorAction Stop }
     catch { Write-Warning "旧版本仍被系统占用；重启后再次安装可清理：$oldPath" }
 }
+$refreshType = @'
+using System;
+using System.Runtime.InteropServices;
+public static class BondSealShellRefresh {
+    [DllImport("shell32.dll", ExactSpelling=true)]
+    public static extern void SHChangeNotify(uint eventId, uint flags, IntPtr item1, IntPtr item2);
+}
+'@
+Add-Type -TypeDefinition $refreshType
+[BondSealShellRefresh]::SHChangeNotify(0x08000000,0,[IntPtr]::Zero,[IntPtr]::Zero)
 Write-Host '安装完成。选中同一文件夹中的 Word，右键 → 显示更多选项 → 生成签署页合集。'
 Write-Host "Agent/命令行入口：$(Join-Path $installRoot 'bondseal.cmd')"
 Write-Host "卸载入口：$(Join-Path $installRoot 'Uninstall.cmd')"
