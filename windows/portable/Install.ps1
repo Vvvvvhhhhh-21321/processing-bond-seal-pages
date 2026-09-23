@@ -1,4 +1,4 @@
-param([switch]$NoPrompt)
+﻿param([switch]$NoPrompt)
 $ErrorActionPreference = 'Stop'
 $sourceRoot = [IO.Path]::GetFullPath((Split-Path -Parent $MyInvocation.MyCommand.Path))
 $expectedFiles = @('GUI\BondSealGUI.exe','CLI\BondSealCLI.exe','windows\BondSealContextMenu.dll')

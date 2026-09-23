@@ -53,17 +53,20 @@ jobs:
         shell: pwsh
         run: |
           $stage = Resolve-Path .\artifacts\portable-stage
-          & (Join-Path $stage 'Install.ps1') -NoPrompt
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $stage 'Install.ps1') -NoPrompt
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell installer failed.' }
           $root = Join-Path $env:LOCALAPPDATA 'Programs\BondSealPages'
           $clsid = '{62C7EB66-A11D-4F91-934C-3DAA9A3EF821}'
           $verb = 'HKCU:\Software\Classes\*\shell\BondSealCollect'
           $server = "HKCU:\Software\Classes\CLSID\$clsid\InprocServer32"
           if (-not (Test-Path -LiteralPath $verb)) { throw 'Explorer verb was not registered.' }
+          if ((Get-Item -LiteralPath $verb).GetValue('') -ne '生成签署页合集') { throw 'Explorer menu title encoding is invalid.' }
           if ((Get-ItemPropertyValue -LiteralPath $verb -Name ExplorerCommandHandler) -ne $clsid) { throw 'Explorer command CLSID mismatch.' }
           if (-not (Test-Path -LiteralPath ((Get-Item -LiteralPath $server).GetValue('')))) { throw 'COM DLL path is invalid.' }
           & (Join-Path $root 'bondseal.cmd') --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI did not start.' }
-          & (Join-Path $root 'Uninstall.ps1') -NoPrompt
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'Uninstall.ps1') -NoPrompt
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell uninstaller failed.' }
           if ((Test-Path -LiteralPath $verb) -or (Test-Path -LiteralPath $server)) { throw 'Uninstall left context-menu registration behind.' }
       - name: Upload unsigned portable app
         uses: actions/upload-artifact@v4

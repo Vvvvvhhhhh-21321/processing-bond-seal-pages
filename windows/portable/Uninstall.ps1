@@ -1,4 +1,4 @@
-param([switch]$NoPrompt)
+﻿param([switch]$NoPrompt)
 $ErrorActionPreference = 'Stop'
 $installRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Programs\BondSealPages'))
 $expectedRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Programs\BondSealPages'))
