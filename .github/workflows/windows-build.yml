@@ -40,6 +40,7 @@ jobs:
           if ($LASTEXITCODE -notin @(1,2)) { throw "Frozen CLI returned unexpected code: $LASTEXITCODE" }
           $payload = ($output -join [Environment]::NewLine) | ConvertFrom-Json
           if ($payload.command -ne 'collect') { throw "Frozen CLI returned the wrong command payload." }
+          $global:LASTEXITCODE = 0
           $zip = Resolve-Path .\artifacts\BondSealPages-Windows-x64.zip
           $entries = [IO.Compression.ZipFile]::OpenRead($zip)
           try {
