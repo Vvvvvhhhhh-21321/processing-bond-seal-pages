@@ -66,7 +66,6 @@ jobs:
             if ((Get-ItemPropertyValue -LiteralPath $verb -Name MultiSelectModel) -ne 'Player') { throw 'Multi-selection is not enabled.' }
           }
           if (-not (Test-Path -LiteralPath ((Get-Item -LiteralPath $server).GetValue('')))) { throw 'COM DLL path is invalid.' }
-          & .\windows\tests\ExplorerCommandState.ps1
           & (Join-Path $root 'bondseal.cmd') --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI did not start.' }
           $previous = (Get-Content -LiteralPath (Join-Path $root 'current.txt') -Raw).Trim()
@@ -75,6 +74,7 @@ jobs:
           $current = (Get-Content -LiteralPath (Join-Path $root 'current.txt') -Raw).Trim()
           if ($previous -eq $current) { throw 'Upgrade did not switch versioned directory.' }
           if (Test-Path -LiteralPath (Join-Path $root $previous)) { throw 'Upgrade left an unused versioned directory.' }
+          & .\windows\tests\ExplorerCommandState.ps1
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'Uninstall.ps1') -NoPrompt
           if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell uninstaller failed.' }
           if ((@($verbs | Where-Object { Test-Path -LiteralPath $_ }).Count -gt 0) -or (Test-Path -LiteralPath $server)) { throw 'Uninstall left context-menu registration behind.' }
