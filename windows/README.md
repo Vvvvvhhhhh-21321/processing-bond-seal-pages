@@ -25,6 +25,10 @@ The build creates GUI and CLI PyInstaller onedir bundles and one `BondSealWordWo
 
 The checked-in publisher `CN=BondSealPages-Development` is a placeholder. CI emits a **test-signed internal package** and the matching public `.cer` plus fingerprint; the private key is generated on the runner and is never uploaded. For an internal test, verify the `.cer` fingerprint, then import it into the target user's **Trusted People** and **Trusted Root Certification Authorities** stores before installing the MSIX. On Windows, `certutil -user -f -addstore Root <certificate.cer>` avoids an interactive root-store prompt during automated setup. Remove the test certificate from both stores after testing (`certutil -user -f -delstore Root <fingerprint>` for the root store). Never upload a test-signed package as a public release. Public distribution needs a permanent package publisher identity and a publicly trusted signing certificate, signing service, or Store distribution. No signing key or certificate belongs in this repository.
 
+## Public signing choice
+
+For GitHub Releases, the selected free option is [SignPath Foundation](https://signpath.org/). This MIT-licensed project must be accepted into its open-source program before a public package can be signed. SignPath supports MSIX and GitHub Actions; the certificate is issued to SignPath Foundation, and each release requires approval. The MSIX `Identity Publisher` must exactly match the approved certificate subject, supplied to `build-package.ps1 -Publisher`; the current development and CI publishers are not public identities. Keep test-signed packages in internal Actions artifacts until approval and an end-to-end install test.
+
 ## Validation boundary
 
 Windows CI compiles the x64 COM DLL, freezes Python hosts, and creates the MSIX. Explorer menu visibility, real multi-selection, package registration, upgrade/uninstall, and alias activation still need verification using a signed internal package on Windows 11.
